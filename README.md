@@ -13,6 +13,14 @@ Prerequisites
  - A C++ compiler (e.g., gcc, clang)
  - Git
 
+For Ubuntu/Debian Linux, you can install the required packages using:
+
+    sudo apt update && sudo apt install -y \
+        python3 python3-pip python3-venv \
+        cmake \
+        build-essential \
+        git
+
 # Clone and Setup
 
     git clone --recurse-submodules https://github.com/jnz/nmpc_multirotor.git
