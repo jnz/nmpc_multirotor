@@ -26,8 +26,23 @@ This will:
  - Create a Python virtual environment (venv_nmpc)
  - Install all dependencies
 
-# Running
+# 🚀 Running
 
     source env.sh
     ./src/main.py
+
+# 🕹️ Controls
+
+Use these keys to manually influence the drone:
+
+| Key         | Command            | Direction     |
+|-------------|--------------------|---------------|
+| ← / →       | Lateral movement   | Left / Right  |
+| ↓ / ↑       | Longitudinal       | Back / Forward|
+| `j` / `k`   | Vertical thrust     | Up / Down     |
+| `h` / `l`   | Yaw (rotation)      | Left / Right  |
+
+- Arrow keys: Horizontal translation (XY-plane)
+- `j`/`k`: Climb/descend
+- `h`/`l`: Rotate yaw left/right
 
