@@ -1,9 +1,13 @@
 # nmpc_multirotor
 NMPC Multirotor Drone Flight Control
 
+![LOGO](img/logo.png)
+
 # 🛠️ Setup
 
 Prerequisites
+
+    Linux, macOS or WSL on Windows
 
     Python 3.8+
 
