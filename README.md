@@ -19,7 +19,7 @@ Prerequisites
 
 # Clone and Setup
 
-    git clone --recurse-submodules https://github.com/youruser/nmpc_multirotor.git
+    git clone --recurse-submodules https://github.com/jnz/nmpc_multirotor.git
     cd nmpc_multirotor
     ./setup.sh
 
@@ -32,8 +32,6 @@ This will:
     Create a Python virtual environment (venv_nmpc)
 
     Install all dependencies
-
-    Install acados_template in editable mode
 
 Running
 
