@@ -11,7 +11,7 @@ git checkout $ACADOS_VERSION
 git submodule update --init --recursive
 mkdir -p build
 cd build
-cmake .. -DACADOS_WITH_QPOASES=OFF
+cmake .. -DACADOS_WITH_QPOASES=OFF -DACADOS_WITH_OPENMP=OFF -DACADOS_EXAMPLES=OFF
 make install -j4 > /dev/null
 cd ../..
 
