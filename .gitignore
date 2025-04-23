@@ -3,3 +3,4 @@ __pycache__
 venv_nmpc
 img/tmp
 *.json
+build/
