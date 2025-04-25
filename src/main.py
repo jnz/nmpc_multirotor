@@ -143,7 +143,6 @@ def nmpc_thread_func(vehicle_config, initial_state):
         1.0  # set q0 (real) unit quaternion part to 1.0
     )
     setpoint_yref[vehicle_config.state_cfg["altitude_index"]] = -0.7
-    setpoint_yref[vehicle_config.state_cfg["altitude_index"]] = -0.7
     ocp.cost.yref = setpoint_yref  # np.zeros((ny, ))    # setpoint trajectory
     ocp.cost.yref_e = setpoint_yref[0:nx]  # np.zeros((ny_e, ))  # setpoint end
 
@@ -662,8 +661,6 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     :param ctrl_state: vehicle control state class VehicleControlState
     :param dt_sec: time step in seconds (MPC update rate)
     """
-    return
-
     cfg = vehicle_config.state_cfg
 
     # Extract position, velocity etc. from state vector
