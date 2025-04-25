@@ -103,13 +103,13 @@ def export_copterpos_ode_model(vehicle_config) -> AcadosModel:
     else:
         assert False, "No controller available for this configuration"
 
-    nx = x.size()[0]
+    nx = x.size()[0] # state size
     assert nx == state_cfg["state_length"], "State size mismatch"
 
     # Weights for the (N)MPC cost function
     weight_diag = np.ones((nx,)) * 1e-6  # default weight
     weight_diag[state_cfg["q_index"] : state_cfg["q_index_end"]] = (
-        vehicle_config.weight_q
+        vehicle_config.weight_q * np.ones(4)
     )  # quaternion / attitude weight
     weight_diag[state_cfg["omega_roll_index"]] = (
         vehicle_config.weight_omega_roll

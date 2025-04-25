@@ -119,12 +119,17 @@ def nmpc_thread_func(vehicle_config, initial_state):
 
     Q_mat = np.diag(model.weight_diag)  # state weight
     R_mat = np.diag(
-        np.ones( nu,) * 1e-1
+        np.ones(nu,) * 1e-1
     )  # weight on control input u
     # R_mat[0,0] = 1e1 # example weight adjustment: be easy on motor #0
 
     ocp.cost.W = scipy.linalg.block_diag(Q_mat, R_mat)
     ocp.cost.W_e = Q_mat
+    np.set_printoptions(precision=3, suppress=True, linewidth=200)
+    print("Weights:")
+    print(np.diag(Q_mat))
+    print("Weights on control input:")
+    print(np.diag(R_mat))
 
     ocp.cost.Vx = np.zeros((ny, nx))
     ocp.cost.Vx[:nx, :nx] = np.eye(nx)
@@ -146,6 +151,9 @@ def nmpc_thread_func(vehicle_config, initial_state):
     ocp.cost.yref = setpoint_yref  # np.zeros((ny, ))    # setpoint trajectory
     ocp.cost.yref_e = setpoint_yref[0:nx]  # np.zeros((ny_e, ))  # setpoint end
 
+    print("Setpoint:")
+    print(setpoint_yref)
+
     ocp.constraints.constr_type = (
         "BGH"  # Comprises simple bounds, polytopic constraints, general non-linear constraints.
     )
@@ -162,7 +170,7 @@ def nmpc_thread_func(vehicle_config, initial_state):
 
     # State soft-constraints
     # nbx = 5  # 3 constraints on the rotation rate, 2 on quaternion
-    nbx = 3  # 3 constraints on the rotation rate, 2 on quaternion
+    nbx = 3  # 3 constraints on the rotation rate
     Jbx = np.zeros((nbx, nx))
     Jbx[
         0:3, vehicle_config.state_cfg["omega_index"] : vehicle_config.state_cfg["omega_index_end"]
