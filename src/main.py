@@ -81,12 +81,23 @@ g_thread_msgbox = {
 g_thread_msgbox_lock = threading.Lock()  # only access g_thread_msgbox with this lock
 g_sim_running = True  # Run application as long as this is set to True
 
+# VehicleControlState is a helper class to store the vehicle control state and
+# the desired position. Managed inside the NMPC thread.
+class VehicleControlState:
+    def __init__(self):
+        self.mode = "HOLD"        # MOVE, BRAKE, HOLD
+        self.stop_timer = 0.0     # timer to stop the vehicle
+        self.desired_pos = None   # 3D position to hold
+        self.yaw_ref = None       # integrated yaw
 
 # This thread's job is to consume the state vector and emit a control output u
 def nmpc_thread_func(vehicle_config, initial_state):
     global g_thread_msgbox
     global g_thread_msgbox_lock
     global g_sim_running
+
+    # Keep track of e.g. the position hold setpoint:
+    vehicle_control_state = VehicleControlState()
 
     ocp = AcadosOcp()  # create ocp object to formulate the OCP
 
@@ -278,7 +289,8 @@ def nmpc_thread_func(vehicle_config, initial_state):
         # Process user input from keymap to update the reference trajectory in
         # the NMPC solver (acados_ocp_solver's yref trajectory and costs in
         # ocp.cost.yref_e)
-        vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config)
+        vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
+                        vehicle_control_state, MPC_DT_SEC)
 
         tic_timestamp = time.time()
         # solve OCP and get next control input
@@ -584,65 +596,147 @@ def main():
     sim_logic_thread.join()
     nmpc_thread.join()
 
+def update_vehicle_control_state(ctrl_state, cmd_b, current_pos, current_vel, q, dt_sec):
+    # helper function for vehicle_control function
+    # updating the vehicle control state machine
 
-def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config):
-    # Set a new reference trajectory for the NMPC based
-    # on the keymap input (pressed keys)
+    vel_mag = np.linalg.norm(current_vel)
+    stopping = np.allclose(cmd_b, 0.0)
+    slow = vel_mag < 0.5  # m/s threshold
+    # is a vertical command requested?
+    vertical_cmd = not np.isclose(cmd_b[2], 0.0)
+    yaw = quat_to_rpy(q)[2]
 
-    # FIXME: this needs a rework. The reference trajectory
-    # is not properly setup
+    if ctrl_state.yaw_ref is None:
+        ctrl_state.yaw_ref = yaw
+    if ctrl_state.desired_pos is None:
+        ctrl_state.desired_pos = current_pos.copy()
 
-    if (
-        not vehicle_config.state_cfg["pos3d_available"]
-        or not vehicle_config.state_cfg["vel3d_available"]
-    ):
-        return
+    if vertical_cmd:
+        # if a vertical command is requested, then set the desired altitude to
+        # the current altitude
+        ctrl_state.desired_pos[2] = current_pos[2]
 
-    if (
-        keymap["lateral_cmd"] != 0.0
-        or keymap["longitudinal_cmd"] != 0.0
-        or keymap["vertical_cmd"] != 0.0
-    ):
-        position_change_requested = True
+    # if yaw_ref deviates more than 10 degrees from the current yaw
+    # then set the yaw_ref to the current yaw:
+    # if np.abs(angle_diff(yaw, ctrl_state.yaw_ref)) > np.deg2rad(10.0):
+    #     ctrl_state.yaw_ref = yaw
+    #     print("reset yaw_ref to current yaw")
+
+    elif ctrl_state.mode == "MOVE":
+        ctrl_state.desired_pos[0] = current_pos[0]
+        ctrl_state.desired_pos[1] = current_pos[1]
+        if stopping:
+            ctrl_state.mode = "BRAKE"
+            ctrl_state.stop_timer = 0.0
+            print("braking...")
+
+    elif ctrl_state.mode == "BRAKE":
+        ctrl_state.desired_pos[0] = current_pos[0]
+        ctrl_state.desired_pos[1] = current_pos[1]
+        if not stopping:
+            ctrl_state.mode = "MOVE"
+        elif slow:
+            ctrl_state.stop_timer += dt_sec
+            if ctrl_state.stop_timer > 0.75:
+                ctrl_state.mode = "HOLD"
+                print("HOLD vehicle to position: %.2f %.2f %.2f" % (ctrl_state.desired_pos[0], ctrl_state.desired_pos[1], ctrl_state.desired_pos[2]))
+        else:
+            ctrl_state.stop_timer = 0.0
+
+    elif ctrl_state.mode == "HOLD":
+        if not stopping:
+            ctrl_state.mode = "MOVE"
+
+def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
+                    ctrl_state, dt_sec):
+    """
+    Generate consistent NMPC references based on user keymap input and FSM.
+    Sets: position, velocity, attitude (quat), angular rate.
+    :param acados_ocp_solver: acados solver object
+    :param ocp: acados ocp object
+    :param state: current state vector
+    :param keymap: user input keymap
+    :param vehicle_config: vehicle configuration with vehicle parameters
+    :param ctrl_state: vehicle control state class VehicleControlState
+    :param dt_sec: time step in seconds (MPC update rate)
+    """
+    cfg = vehicle_config.state_cfg
+
+    # Extract position, velocity etc. from state vector
+    pos = state[cfg["pos3d_index"]:cfg["pos3d_index_end"]]
+    vel = state[cfg["vel3d_index"]:cfg["vel3d_index_end"]]
+    q   = state[cfg["q_index"]:cfg["q_index_end"]]
+    yaw = quat_to_rpy(q)[2]
+
+    # Body-frame user/pilot input
+    cmd_b = np.array([
+        keymap.get("longitudinal_cmd", 0.0),
+        keymap.get("lateral_cmd", 0.0),
+        keymap.get("vertical_cmd", 0.0),
+    ])
+    yaw_cmd = keymap.get("yaw_cmd", 0.0)
+
+    update_vehicle_control_state(ctrl_state, cmd_b, pos, vel, q, dt_sec)
+
+    # Integrate yaw
+    max_yaw_rate = vehicle_config.max_rotation_rate_rps # rad/s
+    yaw_rate_ref = yaw_cmd * max_yaw_rate
+    ctrl_state.yaw_ref += yaw_rate_ref * dt_sec
+
+    # Velocity in nav frame
+    if np.allclose(cmd_b, 0.0):
+        vel_n_ref = np.zeros(3)
     else:
-        position_change_requested = False
+        v_b = np.array([
+            cmd_b[0] * vehicle_config.max_horizontal_velocity_mps,
+            cmd_b[1] * vehicle_config.max_horizontal_velocity_mps,
+            0.0,
+        ])
+        R_yaw = quat_to_matrix(quat_from_rpy(0.0, 0.0, ctrl_state.yaw_ref))
+        vel_n_ref = R_yaw @ v_b
+        vel_n_ref[2] = cmd_b[2] * vehicle_config.max_vertical_velocity_mps
 
-    state_cfg = vehicle_config.state_cfg
-    current_pos = state[state_cfg["pos3d_index"] : state_cfg["pos3d_index_end"]]
-    current_vel = state[state_cfg["vel3d_index"] : state_cfg["vel3d_index_end"]]
-    current_q = state[state_cfg["q_index"] : state_cfg["q_index_end"]]
+    # Compute attitude for velocity ("flat earth")
+    g = vehicle_config.gravity_n[2]
+    tau = 1.0
+    ax = vel_n_ref[0] / tau
+    ay = vel_n_ref[1] / tau
+    roll_ref  = np.clip(np.arctan2(ay, g), -0.4, 0.4)
+    pitch_ref = -np.clip(np.arctan2(ax, g), -0.4, 0.4)
+    qref = quat_from_rpy(roll_ref, pitch_ref, ctrl_state.yaw_ref)
 
-    N_horizon = ocp.dims.N
-    Tf = ocp.solver_options.tf
-    dt_mpc = Tf / N_horizon
+    # Reference position
+    pos_ref = ctrl_state.desired_pos
 
-    yrefNew = np.copy(ocp.cost.yref)
+    N = ocp.dims.N # N = prediction horizon epochs
+    pos_pred = np.zeros((N + 1, 3)) # future positions
+    pos_pred[0] = pos_ref
 
-    setpoint_vel_mps = 0.0
-    if position_change_requested:
-        yrefNew[state_cfg["pos3d_index"] : state_cfg["pos3d_index_end"]] = (
-            current_pos  # set current position as new setpoint position
-        )
-        rpy = quat_to_rpy(current_q)  # could also be the reference attitude?
-        qnew = quat_from_rpy(0.0, 0.0, rpy[2])
-        R = quat_to_matrix(qnew)
-        setpoint_vel_mps = 25.0  # max. velocity
-        v_b = np.array([keymap["longitudinal_cmd"], keymap["lateral_cmd"], keymap["vertical_cmd"]])
-        v_n = setpoint_vel_mps * R @ v_b  # setpoint velocity in n-frame
-        yrefNew[state_cfg["vel3d_index"] : state_cfg["vel3d_index_end"]] = v_n  # setpoint velocity
-    else:
-        yrefNew[state_cfg["vel3d_index"] : state_cfg["vel3d_index_end"]] = np.array(
-            [0.0, 0.0, 0.0]
-        )  # reset velocity
+    # Build yref vector
+    yref = np.copy(ocp.cost.yref)
+    for j in range(1, N + 1):
+        pos_pred[j] = pos_pred[j - 1] + vel_n_ref * dt_sec
 
-    ocp.cost.yref = yrefNew
-    for j in range(N_horizon):
-        acados_ocp_solver.set(j, "yref", np.copy(yrefNew))
+    # Push to acados
+    for j in range(N):
+        if j==0 and not np.allclose(cmd_b, 0.0):
+            print("pos_ref=%.2f %.2f %.2f" % (pos_ref[0], pos_ref[1], pos_ref[2]), end=" ")
+            print("vel_ref=%.2f %.2f %.2f" % (vel_n_ref[0], vel_n_ref[1], vel_n_ref[2]), end="")
+            print("roll=%.2f pitch=%.2f yaw=%.2f" % (np.rad2deg(roll_ref), np.rad2deg(pitch_ref), np.rad2deg(ctrl_state.yaw_ref)), end="")
+            print("")
 
-    nx = state.size
-    yref_N_new = np.copy(yrefNew[0:nx])
-    acados_ocp_solver.set(N_horizon, "yref", yref_N_new)
-    ocp.cost.yref_e = yref_N_new
+        yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[j]
+        yref[cfg["vel3d_index"]:cfg["vel3d_index_end"]] = vel_n_ref
+        yref[cfg["q_index"]:cfg["q_index_end"]] = qref
+        yref[cfg["omega_index"]:cfg["omega_index_end"]] = np.array([0.0, 0.0, yaw_rate_ref])
+        acados_ocp_solver.set(j, "yref", np.copy(yref))
+
+    yref_e = np.copy(yref[:state.size])
+    yref_e[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[N]
+    acados_ocp_solver.set(N, "yref", yref_e)
+    # ocp.cost.yref = yref
+    # ocp.cost.yref_e = yref[:state.size]
 
 if __name__ == "__main__":
     main()
