@@ -38,21 +38,22 @@ class CopterConfig:
         # MPC default weights (might be overwritten below per vehicle)
         # <weights>
         self.cost_u_weight = 0.01  # weight of control inputs
-        self.weight_q = 10.0
-        self.weight_omega_roll = 1.1
-        self.weight_omega_pitch = 1.1
-        self.weight_omega_yaw = 1.1
+        self.weight_q = 50.0
+        self.weight_omega_roll = 80.0
+        self.weight_omega_pitch = 80.0
+        self.weight_omega_yaw = 500.1
 
-        self.weight_north_east = 0.5
-        self.weight_altitude = 0.5
-        self.weight_velocity_horizontal = 1.1
-        self.weight_velocity_vertical = 2.1
+        self.weight_north_east = 1.0
+        self.weight_altitude = 20.5
+        self.weight_velocity_horizontal = 20.0
+        self.weight_velocity_vertical = 120.0
         # </weights>
 
         self.umin = 0.15  # box constaints on control input (min. u)
         self.umax = 1.00  # box constaints on control input (max. u)
         self.rho = 1.225  # air density (kg/m^3)
         self.gravity_n = np.array([0, 0, 9.81])  # gravity in NED frame (m/s^2)
+        self.max_tilt_angle_rad = np.deg2rad(25.0)
 
         # Default efficiency
         self.efficiency_propulsion_system = (
@@ -130,7 +131,7 @@ class CopterConfig:
                 [[2000.0, 0.0, 0.0], [0.0, 2200.0, 0.0], [0.0, 0.0, 3500.0]]
             )  # moment of inertia
             # Motor rotor of inertia
-            self.Jrotor = 0.01  # kg*m^2 # FIXME change back to 1.0
+            self.Jrotor = 1.0  # kg*m^2
             self.max_horizontal_velocity_mps = 25.0  # max vertical velocity of the vehicle in m/s
             self.max_vertical_velocity_mps = 5.0  # max vertical velocity of the vehicle in m/s
             self.windresistance = (
@@ -175,22 +176,13 @@ class CopterConfig:
                 ]
             )  # moment of inertia
             self.Jrotor = 0.0001  # kg*m^2
-            self.max_horizontal_velocity_mps = 5.0  # max horizontal velocity of the vehicle in m/s
-            self.max_vertical_velocity_mps = 3.0  # max vertical velocity of the vehicle in m/s
+            self.max_horizontal_velocity_mps = 15.0  # max horizontal velocity of the vehicle in m/s
+            self.max_vertical_velocity_mps = 5.0  # max vertical velocity of the vehicle in m/s
             # estimating the exposed area to 0.04 m**2 and the drag coefficient to be 0.5
             self.windresistance = (
                 0.04 * 0.5 * self.rho
             )  # wind resistance coefficient = area (m**2) * cw * rho (kg/m**3)
             self.max_rotation_rate_rps = np.deg2rad(100.0)  # max. rotation rate in rad/s
-            self.weight_q = 0.2
-            self.weight_omega_roll = 1.0
-            self.weight_omega_pitch = 1.0
-            self.weight_omega_yaw = 10.0
-
-            self.weight_north_east = 8.0
-            self.weight_altitude = 32.2
-            self.weight_velocity_horizontal = 8.0
-            self.weight_velocity_vertical = 64.0
             # </quadcopter>
 
         else:

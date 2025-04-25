@@ -173,7 +173,7 @@ def export_copterpos_ode_model(vehicle_config) -> AcadosModel:
 
         # drag model
         # ----------
-        model_drag = False  # Set to False to disable drag model
+        model_drag = True  # Set to False to disable drag model
         if model_drag:
             c_D = vehicle_config.windresistance / vehicle_config.mass_kg  # simple drag model
             epsilon = 0.02  # solver gets stuck otherwise at zero velocity
