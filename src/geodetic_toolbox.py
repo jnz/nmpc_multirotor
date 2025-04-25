@@ -1,10 +1,10 @@
 """
-Geodetic Toolbox
-----------------
+  Geodetic Toolbox
+  ----------------
 
-A collection of math helper functions.
+  A collection of math helper functions.
 
-(c) Jan Zwiener (jan@zwiener.org)
+  (c) Jan Zwiener (jan@zwiener.org)
 """
 
 import numpy as np
@@ -20,9 +20,9 @@ def quat_from_rpy(r, p, y):
     :return: Unit quaternion, describing the rotation. np.array with real part
              at q[0] (qw, qx, qy, qz).
     """
-    assert np.abs(r) <= 2 * np.pi, "Invalid arguments"
-    assert np.abs(y) <= 2 * np.pi, "Invalid arguments"
-    assert np.abs(p) <= 0.5 * np.pi, "Invalid arguments"
+    assert (np.abs(r) <= 2 * np.pi), "Invalid arguments"
+    assert (np.abs(y) <= 2 * np.pi), "Invalid arguments"
+    assert (np.abs(p) <= 0.5 * np.pi), "Invalid arguments"
     sr2 = np.sin(r * 0.5)
     cr2 = np.cos(r * 0.5)
     sp2 = np.sin(p * 0.5)
@@ -36,7 +36,6 @@ def quat_from_rpy(r, p, y):
     q = np.array([qreal, q1, q2, q3])
 
     return q
-
 
 def quat_to_matrix(q):
     """
@@ -53,16 +52,13 @@ def quat_to_matrix(q):
     c2 = c * c
     d2 = d * d
 
-    R = np.array(
-        [
-            [a2 + b2 - c2 - d2, 2 * (b * c - a * d), 2 * (b * d + a * c)],
-            [2 * (b * c + a * d), a2 - b2 + c2 - d2, 2 * (c * d - a * b)],
-            [2 * (b * d - a * c), 2 * (c * d + a * b), a2 - b2 - c2 + d2],
-        ]
-    )
+    R = np.array([
+        [a2 + b2 - c2 - d2, 2 * (b * c - a * d), 2 * (b * d + a * c)],
+        [2 * (b * c + a * d), a2 - b2 + c2 - d2, 2 * (c * d - a * b)],
+        [2 * (b * d - a * c), 2 * (c * d + a * b), a2 - b2 - c2 + d2]
+    ])
 
     return R
-
 
 def quat_to_rpy(q):
     """
@@ -71,7 +67,6 @@ def quat_to_rpy(q):
     :return: 3x1 vector with angles in radians (roll, pitch, yaw)
     """
     return extract_rpy_from_R_b_to_n(quat_to_matrix(q))
-
 
 def extract_rpy_from_R_b_to_n(R_b_to_n):
     """
@@ -88,7 +83,6 @@ def extract_rpy_from_R_b_to_n(R_b_to_n):
     yaw = np.arctan2(R_b_to_n[1, 0], R_b_to_n[0, 0])
     return np.array([roll, pitch, yaw])
 
-
 def quat_norm(q):
     """
     Normalize quaternion (make sure the length is 1.0).
@@ -98,13 +92,12 @@ def quat_norm(q):
     if len(q) != 4:
         raise ValueError("Invalid arguments")
 
-    abssquared = q[0] ** 2 + q[1] ** 2 + q[2] ** 2 + q[3] ** 2
+    abssquared = q[0]**2 + q[1]**2 + q[2]**2 + q[3]**2
     if abssquared < 10.0 * np.finfo(float).eps:
         raise ValueError("Quaternion length close to zero")
 
     qnorm = q / np.sqrt(abssquared)
     return qnorm
-
 
 def quat_multiply(q1, q2):
     """
@@ -115,9 +108,13 @@ def quat_multiply(q1, q2):
     """
     assert len(q1) == len(q2) == 4, "Invalid arguments"
     a, b, c, d = q1
-    q_matrix = np.array([[a, -b, -c, -d], [b, a, -d, c], [c, d, a, -b], [d, -c, b, a]])
+    q_matrix = np.array([
+        [ a, -b, -c, -d],
+        [ b,  a, -d,  c],
+        [ c,  d,  a, -b],
+        [ d, -c,  b,  a]
+    ])
     return q_matrix @ q2
-
 
 def attitude_step(dt_sec, q, omega, torque_b, J, Jinv):
     """
@@ -144,24 +141,23 @@ def attitude_step(dt_sec, q, omega, torque_b, J, Jinv):
         omeganext: 3x1 rotation rate (rad/s) of body wrt. ref. nav-frame (in
                    body frame coord. system) after this simulation step.
     """
-    omega_cross = np.array(
-        [[0, -omega[2], omega[1]], [omega[2], 0, -omega[0]], [-omega[1], omega[0], 0]]
-    )
-    omega_dot = Jinv @ (torque_b - omega_cross @ J @ omega)
-    omeganext = omega + omega_dot * dt_sec
+    omega_cross = np.array([ [ 0,        -omega[2],  omega[1]],
+                             [ omega[2],  0,        -omega[0]],
+                             [-omega[1],  omega[0],  0 ] ])
+    omega_dot = Jinv@(torque_b - omega_cross@J@omega)
+    omeganext = omega + omega_dot*dt_sec
 
-    delta = omega * dt_sec
-    delta_abs = np.sqrt(delta @ delta)
+    delta = omega*dt_sec
+    delta_abs = np.sqrt( delta @ delta )
     if delta_abs > 1e-6:
-        img_part = delta / delta_abs * np.sin(delta_abs * 0.5)
-        qr = np.block([np.cos(delta_abs * 0.5), img_part])
+        img_part = delta / delta_abs * np.sin(delta_abs*0.5)
+        qr = np.block([ np.cos(delta_abs*0.5), img_part ])
         qnext = quat_multiply(q, qr)
         qnext = quat_norm(qnext)
     else:
         qnext = q
 
     return qnext, omeganext
-
 
 def quat_invert(q):
     """
@@ -171,7 +167,7 @@ def quat_invert(q):
     :return: Unit quaternion, describing the inverse rotation.
              np.array with real part at q[0] (qw, qx, qy, qz).
     """
-    qinv = np.array([q[0], -q[1], -q[2], -q[3]])
+    qinv = np.array([ q[0], -q[1], -q[2], -q[3] ])
     return qinv
 
 def angle_diff(a, b):
