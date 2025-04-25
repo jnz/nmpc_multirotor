@@ -37,15 +37,16 @@ class CopterConfig:
 
         # MPC default weights (might be overwritten below per vehicle)
         # <weights>
-        self.weight_q = 32.0
+        self.cost_u_weight = 0.01  # weight of control inputs
+        self.weight_q = 1.0
         self.weight_omega_roll = 0.1
         self.weight_omega_pitch = 0.1
         self.weight_omega_yaw = 0.1
 
-        self.weight_north_east = 0.2
-        self.weight_altitude = 3.2
-        self.weight_velocity_horizontal = 0.1
-        self.weight_velocity_vertical = 0.1
+        self.weight_north_east = 0.5
+        self.weight_altitude = 0.5
+        self.weight_velocity_horizontal = 1.1
+        self.weight_velocity_vertical = 2.1
         # </weights>
 
         self.umin = 0.15  # box constaints on control input (min. u)
@@ -129,7 +130,7 @@ class CopterConfig:
                 [[2000.0, 0.0, 0.0], [0.0, 2200.0, 0.0], [0.0, 0.0, 3500.0]]
             )  # moment of inertia
             # Motor rotor of inertia
-            self.Jrotor = 1.0  # kg*m^2
+            self.Jrotor = 0.01  # kg*m^2 # FIXME change back to 1.0
             self.max_horizontal_velocity_mps = 25.0  # max vertical velocity of the vehicle in m/s
             self.max_vertical_velocity_mps = 5.0  # max vertical velocity of the vehicle in m/s
             self.windresistance = (

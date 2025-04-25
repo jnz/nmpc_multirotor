@@ -119,16 +119,16 @@ def nmpc_thread_func(vehicle_config, initial_state):
 
     Q_mat = np.diag(model.weight_diag)  # state weight
     R_mat = np.diag(
-        np.ones(nu,) * 1e-1
+        np.ones(nu,) * model.cost_u_weight
     )  # weight on control input u
     # R_mat[0,0] = 1e1 # example weight adjustment: be easy on motor #0
 
     ocp.cost.W = scipy.linalg.block_diag(Q_mat, R_mat)
     ocp.cost.W_e = Q_mat
-    np.set_printoptions(precision=3, suppress=True, linewidth=200)
-    print("Weights:")
+    np.set_printoptions(precision=3, suppress=True, linewidth=400)
+    print("Weights: ", end="")
     print(np.diag(Q_mat))
-    print("Weights on control input:")
+    print("Weights on control input:", end="")
     print(np.diag(R_mat))
 
     ocp.cost.Vx = np.zeros((ny, nx))
@@ -734,7 +734,8 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
 
     # Push to acados
     for j in range(N):
-        # if j==0 and not np.allclose(cmd_b, 0.0):
+        if j==0 and (not np.allclose(cmd_b, 0.0) or yaw_cmd != 0.0):
+            print(yref)
         #     print("pos_ref=%.2f %.2f %.2f" % (pos_ref[0], pos_ref[1], pos_ref[2]), end=" ")
         #     print("vel_ref=%.2f %.2f %.2f" % (vel_n_ref[0], vel_n_ref[1], vel_n_ref[2]), end="")
         #     print("roll=%.2f pitch=%.2f yaw=%.2f" % (np.rad2deg(roll_ref), np.rad2deg(pitch_ref), np.rad2deg(ctrl_state.yaw_ref)), end="")
@@ -749,3 +750,4 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
 
 if __name__ == "__main__":
     main()
+

@@ -106,8 +106,9 @@ def export_copterpos_ode_model(vehicle_config) -> AcadosModel:
     nx = x.size()[0] # state size
     assert nx == state_cfg["state_length"], "State size mismatch"
 
+    cost_u_weight = vehicle_config.cost_u_weight
     # Weights for the (N)MPC cost function
-    weight_diag = np.ones((nx,)) * 1e-6  # default weight
+    weight_diag = np.ones((nx,)) * 0.0  # default weight
     weight_diag[state_cfg["q_index"] : state_cfg["q_index_end"]] = (
         vehicle_config.weight_q * np.ones(4)
     )  # quaternion / attitude weight
@@ -233,7 +234,7 @@ def export_copterpos_ode_model(vehicle_config) -> AcadosModel:
             )
 
         f_expl = vertcat(
-            -(omega_x * q_1) / 2.0 - (omega_y * q_2) / 2.0 - (omega_z * q_3) / 2.0,
+           -(omega_x * q_1) / 2.0 - (omega_y * q_2) / 2.0 - (omega_z * q_3) / 2.0,
             (omega_x * q_0) / 2.0 - (omega_y * q_3) / 2.0 + (omega_z * q_2) / 2.0,
             (omega_y * q_0) / 2.0 + (omega_x * q_3) / 2.0 - (omega_z * q_1) / 2.0,
             (omega_y * q_1) / 2.0 - (omega_x * q_2) / 2.0 + (omega_z * q_0) / 2.0,
@@ -285,6 +286,7 @@ def export_copterpos_ode_model(vehicle_config) -> AcadosModel:
     model.ctrlout_u_is_squared = ctrlout_u_is_squared
     model.name = model_name
     model.weight_diag = weight_diag
+    model.cost_u_weight = cost_u_weight
     model.state_cfg = state_cfg
 
     return model
