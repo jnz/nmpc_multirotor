@@ -55,6 +55,8 @@ class MultirotorEnv:
         :return state (state vector)
         """
 
+        print("Resetting simulation...")
+
         # <state>
         self.pos_n = np.array([0.0, 0.0, -0.7])
         self.vel_n = np.zeros(3)

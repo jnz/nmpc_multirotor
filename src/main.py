@@ -143,6 +143,7 @@ def nmpc_thread_func(vehicle_config, initial_state):
         1.0  # set q0 (real) unit quaternion part to 1.0
     )
     setpoint_yref[vehicle_config.state_cfg["altitude_index"]] = -0.7
+    setpoint_yref[vehicle_config.state_cfg["altitude_index"]] = -0.7
     ocp.cost.yref = setpoint_yref  # np.zeros((ny, ))    # setpoint trajectory
     ocp.cost.yref_e = setpoint_yref[0:nx]  # np.zeros((ny_e, ))  # setpoint end
 
@@ -161,13 +162,14 @@ def nmpc_thread_func(vehicle_config, initial_state):
     ocp.constraints.idxbu = np.array(range(nu))
 
     # State soft-constraints
-    nbx = 5  # 3 constraints on the rotation rate, 2 on quaternion
+    # nbx = 5  # 3 constraints on the rotation rate, 2 on quaternion
+    nbx = 3  # 3 constraints on the rotation rate, 2 on quaternion
     Jbx = np.zeros((nbx, nx))
     Jbx[
         0:3, vehicle_config.state_cfg["omega_index"] : vehicle_config.state_cfg["omega_index_end"]
     ] = np.eye(3)
-    Jbx[3, vehicle_config.state_cfg["q_index"] + 1] = 1
-    Jbx[4, vehicle_config.state_cfg["q_index"] + 2] = 1
+    # Jbx[3, vehicle_config.state_cfg["q_index"] + 1] = 1
+    # Jbx[4, vehicle_config.state_cfg["q_index"] + 2] = 1
     max_rotation_rate_rps = vehicle_config.max_rotation_rate_rps
     ocp.constraints.Jbx = Jbx
     ocp.constraints.lbx = np.zeros((nbx, 0))
@@ -178,10 +180,10 @@ def nmpc_thread_func(vehicle_config, initial_state):
     ocp.constraints.ubx[0] = max_rotation_rate_rps
     ocp.constraints.ubx[1] = max_rotation_rate_rps
     ocp.constraints.ubx[2] = max_rotation_rate_rps
-    ocp.constraints.lbx[3] = -0.3  # not the best way to limit the tilt angle, but linear
-    ocp.constraints.ubx[3] = 0.3
-    ocp.constraints.lbx[4] = -0.3
-    ocp.constraints.ubx[4] = 0.3
+    # ocp.constraints.lbx[3] = -0.3  # not the best way to limit the tilt angle, but linear
+    # ocp.constraints.ubx[3] = 0.3
+    # ocp.constraints.lbx[4] = -0.3
+    # ocp.constraints.ubx[4] = 0.3
     ocp.constraints.Jsbx = np.eye(nbx)  # enable soft constraints
 
     # Obstacle soft-constraints
@@ -619,9 +621,8 @@ def update_vehicle_control_state(ctrl_state, cmd_b, current_pos, current_vel, q,
 
     # if yaw_ref deviates more than 10 degrees from the current yaw
     # then set the yaw_ref to the current yaw:
-    # if np.abs(angle_diff(yaw, ctrl_state.yaw_ref)) > np.deg2rad(10.0):
-    #     ctrl_state.yaw_ref = yaw
-    #     print("reset yaw_ref to current yaw")
+    if np.abs(angle_diff(yaw, ctrl_state.yaw_ref)) > np.deg2rad(10.0):
+        ctrl_state.yaw_ref = yaw
 
     elif ctrl_state.mode == "MOVE":
         ctrl_state.desired_pos[0] = current_pos[0]
@@ -693,7 +694,7 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
             cmd_b[1] * vehicle_config.max_horizontal_velocity_mps,
             0.0,
         ])
-        R_yaw = quat_to_matrix(quat_from_rpy(0.0, 0.0, ctrl_state.yaw_ref))
+        R_yaw = quat_to_matrix(quat_from_rpy(0.0, 0.0, yaw))
         vel_n_ref = R_yaw @ v_b
         vel_n_ref[2] = cmd_b[2] * vehicle_config.max_vertical_velocity_mps
 
@@ -709,12 +710,17 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     # Reference position
     pos_ref = ctrl_state.desired_pos
 
+    # Build yref vector
+    yref = np.copy(ocp.cost.yref)
+    yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_ref
+    yref[cfg["vel3d_index"]:cfg["vel3d_index_end"]] = vel_n_ref
+    yref[cfg["q_index"]:cfg["q_index_end"]] = qref
+    yref[cfg["omega_index"]:cfg["omega_index_end"]] = np.array([0.0, 0.0, yaw_rate_ref])
+    ocp.cost.yref = np.copy(yref)
+
     N = ocp.dims.N # N = prediction horizon epochs
     pos_pred = np.zeros((N + 1, 3)) # future positions
     pos_pred[0] = pos_ref
-
-    # Build yref vector
-    yref = np.copy(ocp.cost.yref)
     for j in range(1, N + 1):
         pos_pred[j] = pos_pred[j - 1] + vel_n_ref * dt_sec
 
@@ -727,16 +733,12 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
             print("")
 
         yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[j]
-        yref[cfg["vel3d_index"]:cfg["vel3d_index_end"]] = vel_n_ref
-        yref[cfg["q_index"]:cfg["q_index_end"]] = qref
-        yref[cfg["omega_index"]:cfg["omega_index_end"]] = np.array([0.0, 0.0, yaw_rate_ref])
         acados_ocp_solver.set(j, "yref", np.copy(yref))
 
     yref_e = np.copy(yref[:state.size])
     yref_e[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[N]
     acados_ocp_solver.set(N, "yref", yref_e)
-    # ocp.cost.yref = yref
-    # ocp.cost.yref_e = yref[:state.size]
+    ocp.cost.yref_e = yref_e
 
 if __name__ == "__main__":
     main()

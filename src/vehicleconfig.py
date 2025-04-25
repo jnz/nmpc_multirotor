@@ -35,21 +35,25 @@ class CopterConfig:
         #   T_i = rho * A * Cd * maxOmega^2 * u_i^2                (5)
         # -----------------------------------------------------------------------------------------
 
-        self.umin = 0.15  # box constaints on control input (min. u)
-        self.umax = 1.00  # box constaints on control input (max. u)
-        self.rho = 1.225  # air density
-        self.gravity_n = np.array([0, 0, 9.81])  # gravity in NED frame (m/s^2)
-
         # MPC default weights (might be overwritten below per vehicle)
+        # <weights>
         self.weight_q = 16.0
         self.weight_omega_roll = 1.0
         self.weight_omega_pitch = 1.0
-        self.weight_omega_yaw = 10.0
+        self.weight_omega_yaw = 1.0
 
         self.weight_north_east = 0.2
         self.weight_altitude = 3.2
         self.weight_velocity_horizontal = 8.0
         self.weight_velocity_vertical = 8.0
+        # </weights>
+
+        self.umin = 0.15  # box constaints on control input (min. u)
+        self.umax = 1.00  # box constaints on control input (max. u)
+        self.rho = 1.225  # air density (kg/m^3)
+        self.gravity_n = np.array([0, 0, 9.81])  # gravity in NED frame (m/s^2)
+
+        # Default efficiency
         self.efficiency_propulsion_system = (
             0.92  # elect. power * efficiency_propulsion_system = mech. power
         )
