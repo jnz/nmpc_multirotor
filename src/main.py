@@ -360,11 +360,10 @@ def sim_thread_func(env):
 
         R_b_to_n, pos_n = env.get_render_info()
         with g_thread_msgbox_lock:
-            g_thread_msgbox["R"] = (
-                R_b_to_n  # emit current attitude body to n-frame for render thread
-            )
-            g_thread_msgbox["pos"] = pos_n  # emit current pos in NED for render thread
-            g_thread_msgbox["state"] = state  # emit current state vector for NMPC thread
+            # emit current attitude body to n-frame for render thread
+            g_thread_msgbox["R"] = copy.deepcopy(R_b_to_n)
+            g_thread_msgbox["pos"] = copy.deepcopy(pos_n)  # emit current pos in NED for render thread
+            g_thread_msgbox["state"] = copy.deepcopy(state)  # emit current state vector for NMPC thread
             mpc_fps = g_thread_msgbox["mpc_fps"]
             render_fps = g_thread_msgbox["render_fps"]
             nmpc_time_tot = g_thread_msgbox["nmpc_time_tot"]
