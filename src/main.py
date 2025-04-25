@@ -677,14 +677,15 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
         vel_n_ref = R_yaw @ v_b
         vel_n_ref[2] = cmd_b[2] * vehicle_config.max_vertical_velocity_mps
 
-    # Compute attitude for velocity ("flat earth")
+    # Compute attitude for velocity
+    m = vehicle_config.mass_kg
     g = vehicle_config.gravity_n[2]
-    tau = 1.0
-    ax = vel_n_ref[0] / tau
-    ay = vel_n_ref[1] / tau
-    tilt = vehicle_config.max_tilt_angle_rad
-    roll_ref  = np.clip(np.arctan2(ay, g), -tilt, tilt)
-    pitch_ref = -np.clip(np.arctan2(ax, g), -tilt, tilt)
+    v_norm = np.hypot(vel_n_ref[0], vel_n_ref[1])
+    c_D = vehicle_config.windresistance
+    F_x = c_D * vel_n_ref[0] * v_norm
+    F_y = c_D * vel_n_ref[1] * v_norm
+    roll_ref = np.arctan(F_y / (m * g))
+    pitch_ref = -np.arctan(F_x / (m * g))
     q_ref = quat_from_rpy(roll_ref, pitch_ref, ctrl_state.yaw_ref)
     omega_ref = np.array([0.0, 0.0, yaw_rate_ref])
 
