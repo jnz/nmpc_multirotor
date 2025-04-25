@@ -662,6 +662,8 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     :param ctrl_state: vehicle control state class VehicleControlState
     :param dt_sec: time step in seconds (MPC update rate)
     """
+    return
+
     cfg = vehicle_config.state_cfg
 
     # Extract position, velocity etc. from state vector
@@ -705,7 +707,8 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     ay = vel_n_ref[1] / tau
     roll_ref  = np.clip(np.arctan2(ay, g), -0.4, 0.4)
     pitch_ref = -np.clip(np.arctan2(ax, g), -0.4, 0.4)
-    qref = quat_from_rpy(roll_ref, pitch_ref, ctrl_state.yaw_ref)
+    q_ref = quat_from_rpy(roll_ref, pitch_ref, ctrl_state.yaw_ref)
+    omega_ref = np.array([0.0, 0.0, yaw_rate_ref])
 
     # Reference position
     pos_ref = ctrl_state.desired_pos
@@ -714,8 +717,8 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     yref = np.copy(ocp.cost.yref)
     yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_ref
     yref[cfg["vel3d_index"]:cfg["vel3d_index_end"]] = vel_n_ref
-    yref[cfg["q_index"]:cfg["q_index_end"]] = qref
-    yref[cfg["omega_index"]:cfg["omega_index_end"]] = np.array([0.0, 0.0, yaw_rate_ref])
+    yref[cfg["q_index"]:cfg["q_index_end"]] = q_ref
+    yref[cfg["omega_index"]:cfg["omega_index_end"]] = omega_ref
     ocp.cost.yref = np.copy(yref)
 
     N = ocp.dims.N # N = prediction horizon epochs
