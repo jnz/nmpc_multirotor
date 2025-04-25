@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-ACADOS_VERSION=v0.2.6
+ACADOS_VERSION=v0.4.5
 
 # setup acados
 echo "Setting up acados submodule..."

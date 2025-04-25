@@ -111,7 +111,7 @@ def nmpc_thread_func(vehicle_config, initial_state):
     ny = nx + nu
     ny_e = nx
     N_horizon = int(20 * Tf)  # Epochs for MPC prediction horizon
-    ocp.dims.N = N_horizon
+    ocp.solver_options.N_horizon = N_horizon
 
     # set cost module
     ocp.cost.cost_type = "LINEAR_LS"
@@ -168,64 +168,34 @@ def nmpc_thread_func(vehicle_config, initial_state):
     ocp.constraints.x0 = x0
     ocp.constraints.idxbu = np.array(range(nu))
 
-    # State soft-constraints
-    # nbx = 5  # 3 constraints on the rotation rate, 2 on quaternion
-    nbx = 3  # 3 constraints on the rotation rate
-    Jbx = np.zeros((nbx, nx))
-    Jbx[
-        0:3, vehicle_config.state_cfg["omega_index"] : vehicle_config.state_cfg["omega_index_end"]
-    ] = np.eye(3)
-    # Jbx[3, vehicle_config.state_cfg["q_index"] + 1] = 1
-    # Jbx[4, vehicle_config.state_cfg["q_index"] + 2] = 1
+    # 1. Define which state indices to constrain
+    constrained_state_indices = list(range(
+        vehicle_config.state_cfg["omega_index"],
+        vehicle_config.state_cfg["omega_index_end"]
+    ))
+    ocp.constraints.idxbx = np.array(constrained_state_indices)
+
+    # 2. Set hard bounds for these states
     max_rotation_rate_rps = vehicle_config.max_rotation_rate_rps
-    ocp.constraints.Jbx = Jbx
-    ocp.constraints.lbx = np.zeros((nbx, 0))
-    ocp.constraints.ubx = np.zeros((nbx, 0))
-    ocp.constraints.lbx[0] = -max_rotation_rate_rps
-    ocp.constraints.lbx[1] = -max_rotation_rate_rps
-    ocp.constraints.lbx[2] = -max_rotation_rate_rps
-    ocp.constraints.ubx[0] = max_rotation_rate_rps
-    ocp.constraints.ubx[1] = max_rotation_rate_rps
-    ocp.constraints.ubx[2] = max_rotation_rate_rps
-    # ocp.constraints.lbx[3] = -0.3  # not the best way to limit the tilt angle, but linear
-    # ocp.constraints.ubx[3] = 0.3
-    # ocp.constraints.lbx[4] = -0.3
-    # ocp.constraints.ubx[4] = 0.3
-    ocp.constraints.Jsbx = np.eye(nbx)  # enable soft constraints
+    ocp.constraints.lbx = np.array([-max_rotation_rate_rps] * len(constrained_state_indices))
+    ocp.constraints.ubx = np.array([ max_rotation_rate_rps] * len(constrained_state_indices))
 
-    # Obstacle soft-constraints
-    num_obstacles = 0 # disable obstacles test code below
-    nsh = num_obstacles  # nsh = number of slack variables for the h-expression
-    if num_obstacles > 0:
-        con_expr = SX.sym("con_expr", num_obstacles, 1)
-        obstacle_radius = np.array([20.0, 20.0])
-        pos3d_index = vehicle_config.state_cfg["pos3d_index"]
-        pos3d_index_e = vehicle_config.state_cfg["pos3d_index_end"]
-        con_expr[0] = sqrt(
-            sumsqr(model.x[pos3d_index:pos3d_index_e] - np.array([40.0, -10.0, 0.0]))
-        )  # obstacle position 1
-        con_expr[1] = sqrt(
-            sumsqr(model.x[pos3d_index:pos3d_index_e] - np.array([100.0, 10.0, 0.0]))
-        )  # obstacle position 2
-        ocp.model.con_h_expr = con_expr
-        ocp.model.con_h_expr_e = con_expr
-        ocp.constraints.lh = obstacle_radius
-        ocp.constraints.uh = 1e9 * np.ones((num_obstacles,))  # make it a very large number
-        ocp.constraints.lh_e = obstacle_radius
-        ocp.constraints.uh_e = 1e9 * np.ones((num_obstacles,))  # make it a very large number
-        ocp.constraints.lsh = np.zeros(nsh)
-        ocp.constraints.ush = np.zeros(nsh)
-        ocp.constraints.idxsh = np.array(range(nsh))
+    # 3. Make all these bounds soft
+    ocp.constraints.idxsbx = np.arange(len(constrained_state_indices))
+    print(f"Soft constraints on x indices: {ocp.constraints.idxbx[ocp.constraints.idxsbx]}")
 
-    # slack variables
-    ns = nbx + nsh  # total number of soft constraints (slack)
-    L2_pen = 10e3  # Least squares penalty for slack variables
-    L1_pen = 0.0  # L1-norm penalty (set to zero to disable)
-    ocp.cost.Zl = L2_pen * np.ones((ns,))
-    ocp.cost.Zu = L2_pen * np.ones((ns,))
-    ocp.cost.zl = L1_pen * np.ones((ns,))
-    ocp.cost.zu = L1_pen * np.ones((ns,))
+    # --- 4. Set slack penalties for soft constraints ---
+    ns = len(ocp.constraints.idxsbx)  # number of softened bounds
+    L2_penalty = 1e4  # quadratic penalty (Z terms)
+    L1_penalty = 0.0  # linear penalty (z terms, often zero)
 
+    ocp.cost.Zl = L2_penalty * np.ones((ns,))
+    ocp.cost.Zu = L2_penalty * np.ones((ns,))
+    ocp.cost.zl = L1_penalty * np.ones((ns,))
+    ocp.cost.zu = L1_penalty * np.ones((ns,))
+    print(f"Penalty matrix Zl:\n{ocp.cost.Zl}")
+
+    # Solver options
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
     ocp.solver_options.integrator_type = "ERK"  # IRK, GNSF, ERK
@@ -726,7 +696,7 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     yref[cfg["omega_index"]:cfg["omega_index_end"]] = omega_ref
     ocp.cost.yref = np.copy(yref)
 
-    N = ocp.dims.N # N = prediction horizon epochs
+    N = ocp.solver_options.N_horizon # N = prediction horizon epochs
     pos_pred = np.zeros((N + 1, 3)) # future positions
     pos_pred[0] = pos_ref
     for j in range(1, N + 1):
@@ -734,8 +704,8 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
 
     # Push to acados
     for j in range(N):
-        if j==0 and (not np.allclose(cmd_b, 0.0) or yaw_cmd != 0.0):
-            print(yref)
+        # if j==0 and (not np.allclose(cmd_b, 0.0) or yaw_cmd != 0.0):
+        #     print(yref)
         #     print("pos_ref=%.2f %.2f %.2f" % (pos_ref[0], pos_ref[1], pos_ref[2]), end=" ")
         #     print("vel_ref=%.2f %.2f %.2f" % (vel_n_ref[0], vel_n_ref[1], vel_n_ref[2]), end="")
         #     print("roll=%.2f pitch=%.2f yaw=%.2f" % (np.rad2deg(roll_ref), np.rad2deg(pitch_ref), np.rad2deg(ctrl_state.yaw_ref)), end="")
