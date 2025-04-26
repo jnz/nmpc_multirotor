@@ -168,35 +168,37 @@ def nmpc_thread_func(vehicle_config, initial_state):
     ocp.constraints.x0 = x0
     ocp.constraints.idxbu = np.array(range(nu))
 
-    # <Soft Constraints>
-    # 1. Define which state indices to constrain
-    constrained_state_indices = list(range(
-        vehicle_config.state_cfg["omega_index"],
-        vehicle_config.state_cfg["omega_index_end"]
-    ))
-    ocp.constraints.idxbx_e = np.array(constrained_state_indices)
+    enable_soft_constraints = True
+    if enable_soft_constraints:
+        # <Soft Constraints>
+        # 1. Define which state indices to constrain
+        constrained_state_indices = list(range(
+            vehicle_config.state_cfg["omega_index"],
+            vehicle_config.state_cfg["omega_index_end"]
+        ))
+        ocp.constraints.idxbx_e = np.array(constrained_state_indices)
 
-    # 2. Set hard bounds for these states
-    max_rotation_rate_rps = vehicle_config.max_rotation_rate_rps
-    print("Max. rotation rate soft constraint: %.1f deg/s" % (np.rad2deg(max_rotation_rate_rps)))
-    ocp.constraints.lbx_e = np.array([-max_rotation_rate_rps] * len(constrained_state_indices))
-    ocp.constraints.ubx_e = np.array([ max_rotation_rate_rps] * len(constrained_state_indices))
+        # 2. Set hard bounds for these states
+        max_rotation_rate_rps = vehicle_config.max_rotation_rate_rps
+        print("Max. rotation rate soft constraint: %.1f deg/s" % (np.rad2deg(max_rotation_rate_rps)))
+        ocp.constraints.lbx_e = np.array([-max_rotation_rate_rps] * len(constrained_state_indices))
+        ocp.constraints.ubx_e = np.array([ max_rotation_rate_rps] * len(constrained_state_indices))
 
-    # 3. Make all these bounds soft
-    ocp.constraints.idxsbx_e = np.arange(len(constrained_state_indices))
-    ns = len(constrained_state_indices)  # number of softened bounds
-    ocp.constraints.lsbx_e = np.zeros((ns,))
-    ocp.constraints.usbx_e = 1e2 * np.ones((ns,))
+        # 3. Make all these bounds soft
+        ocp.constraints.idxsbx_e = np.arange(len(constrained_state_indices))
+        ns = len(constrained_state_indices)  # number of softened bounds
+        ocp.constraints.lsbx_e = np.zeros((ns,))
+        ocp.constraints.usbx_e = 1e2 * np.ones((ns,))
 
-    # 4. Set slack penalties for soft constraints
-    L2_penalty = 1.0  # quadratic penalty (Z terms)
-    L1_penalty = 0.0  # linear penalty (z terms, often zero)
+        # 4. Set slack penalties for soft constraints
+        L2_penalty = 1.0  # quadratic penalty (Z terms)
+        L1_penalty = 0.0  # linear penalty (z terms, often zero)
 
-    ocp.cost.Zl_e = L2_penalty * np.ones((ns,))
-    ocp.cost.Zu_e = L2_penalty * np.ones((ns,))
-    ocp.cost.zl_e = L1_penalty * np.ones((ns,))
-    ocp.cost.zu_e = L1_penalty * np.ones((ns,))
-    # </Soft Constraints>
+        ocp.cost.Zl_e = L2_penalty * np.ones((ns,))
+        ocp.cost.Zu_e = L2_penalty * np.ones((ns,))
+        ocp.cost.zl_e = L1_penalty * np.ones((ns,))
+        ocp.cost.zu_e = L1_penalty * np.ones((ns,))
+        # </Soft Constraints>
 
     # Solver options
     ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
