@@ -132,7 +132,7 @@ class CopterConfig:
             )  # moment of inertia
             # Motor rotor of inertia
             self.Jrotor = 1.0  # kg*m^2
-            self.max_horizontal_velocity_mps = 25.0  # max vertical velocity of the vehicle in m/s
+            self.max_horizontal_velocity_mps = 15.0  # max vertical velocity of the vehicle in m/s
             self.max_vertical_velocity_mps = 5.0  # max vertical velocity of the vehicle in m/s
             self.windresistance = (
                 8.0  # wind resistance coefficient = area (m**2) * cw * rho (kg/m**3)

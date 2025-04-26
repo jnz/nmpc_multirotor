@@ -709,11 +709,11 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     # Push to acados
     for j in range(N):
         # if j==0 and (not np.allclose(cmd_b, 0.0) or yaw_cmd != 0.0):
-        #     print(yref)
-        #     print("pos_ref=%.2f %.2f %.2f" % (pos_ref[0], pos_ref[1], pos_ref[2]), end=" ")
-        #     print("vel_ref=%.2f %.2f %.2f" % (vel_n_ref[0], vel_n_ref[1], vel_n_ref[2]), end="")
-        #     print("roll=%.2f pitch=%.2f yaw=%.2f" % (np.rad2deg(roll_ref), np.rad2deg(pitch_ref), np.rad2deg(ctrl_state.yaw_ref)), end="")
-        #     print("")
+        #      print(yref)
+        #      print("pos_ref=%.2f %.2f %.2f" % (pos_ref[0], pos_ref[1], pos_ref[2]), end=" ")
+        #      print("vel_ref=%.2f %.2f %.2f" % (vel_n_ref[0], vel_n_ref[1], vel_n_ref[2]), end="")
+        #      print("roll_ref=%.2f pitch_ref=%.2f yaw_ref=%.2f" % (np.rad2deg(roll_ref), np.rad2deg(pitch_ref), np.rad2deg(ctrl_state.yaw_ref)), end="")
+        #      print("")
         yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[j]
         acados_ocp_solver.set(j, "yref", np.copy(yref))
 
