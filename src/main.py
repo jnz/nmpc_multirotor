@@ -181,35 +181,35 @@ def nmpc_thread_func(vehicle_config, initial_state):
         lower_bound_x = np.array([-max_rotation_rate_rps] * len(constrained_state_indices))
         upper_bound_x = np.array([ max_rotation_rate_rps] * len(constrained_state_indices))
         ns = len(constrained_state_indices)  # number of softened bounds
-        L2_penalty = 1e5  # quadratic penalty (Z terms)
+        L2_penalty = 1e3  # quadratic penalty (Z terms)
         L1_penalty = 0.0  # linear penalty (z terms, often zero)
 
         # Path constraints
-        #  ocp.constraints.idxbx = np.array(constrained_state_indices)
-        #  ocp.constraints.lbx = np.array(lower_bound_x)
-        #  ocp.constraints.ubx = np.array(upper_bound_x)
-        #  # Make bounds soft
-        #  ocp.constraints.idxsbx = np.arange(ns)
-        #  ocp.constraints.lsbx = np.zeros((ns,))
-        #  ocp.constraints.usbx = 1e3 * np.ones((ns,))
-        #  # costs
-        #  ocp.cost.Zl = L2_penalty * np.ones((ns,))
-        #  ocp.cost.Zu = L2_penalty * np.ones((ns,))
-        #  ocp.cost.zl = L1_penalty * np.ones((ns,))
-        #  ocp.cost.zu = L1_penalty * np.ones((ns,))
-        # Terminal constraints
-        ocp.constraints.idxbx_e = np.array(constrained_state_indices)
-        ocp.constraints.lbx_e = lower_bound_x
-        ocp.constraints.ubx_e = upper_bound_x
+        ocp.constraints.idxbx = np.array(constrained_state_indices)
+        ocp.constraints.lbx = np.array(lower_bound_x)
+        ocp.constraints.ubx = np.array(upper_bound_x)
         # Make bounds soft
-        ocp.constraints.idxsbx_e = np.arange(len(constrained_state_indices))
-        ocp.constraints.lsbx_e = np.zeros((ns,))
-        ocp.constraints.usbx_e = 1e3 * np.ones((ns,))
-        # Add costs
-        ocp.cost.Zl_e = L2_penalty * np.ones((ns,))
-        ocp.cost.Zu_e = L2_penalty * np.ones((ns,))
-        ocp.cost.zl_e = L1_penalty * np.ones((ns,))
-        ocp.cost.zu_e = L1_penalty * np.ones((ns,))
+        ocp.constraints.idxsbx = np.arange(ns)
+        ocp.constraints.lsbx = np.zeros((ns,))
+        ocp.constraints.usbx = np.zeros((ns,))
+        # costs
+        ocp.cost.Zl = L2_penalty * np.ones((ns,))
+        ocp.cost.Zu = L2_penalty * np.ones((ns,))
+        ocp.cost.zl = L1_penalty * np.ones((ns,))
+        ocp.cost.zu = L1_penalty * np.ones((ns,))
+        # Terminal constraints
+        # ocp.constraints.idxbx_e = np.array(constrained_state_indices)
+        # ocp.constraints.lbx_e = lower_bound_x
+        # ocp.constraints.ubx_e = upper_bound_x
+        # # Make bounds soft
+        # ocp.constraints.idxsbx_e = np.arange(len(constrained_state_indices))
+        # ocp.constraints.lsbx_e = np.zeros((ns,))
+        # ocp.constraints.usbx_e = np.zeros((ns,))
+        # # Add costs
+        # ocp.cost.Zl_e = L2_penalty * np.ones((ns,))
+        # ocp.cost.Zu_e = L2_penalty * np.ones((ns,))
+        # ocp.cost.zl_e = L1_penalty * np.ones((ns,))
+        # ocp.cost.zu_e = L1_penalty * np.ones((ns,))
         #</Soft Constraints>
 
     # Solver options

@@ -38,10 +38,10 @@ class CopterConfig:
         # MPC default weights (might be overwritten below per vehicle)
         # <weights>
         self.cost_u_weight = 0.1  # weight of control inputs
-        self.weight_q = 10.0
-        self.weight_omega_roll = 80.0
-        self.weight_omega_pitch = 80.0
-        self.weight_omega_yaw = 1000.0
+        self.weight_q = 50.0
+        self.weight_omega_roll = 10.0
+        self.weight_omega_pitch = 10.0
+        self.weight_omega_yaw = 500.0
 
         self.weight_north_east = 1.0
         self.weight_altitude = 20.5
@@ -137,7 +137,7 @@ class CopterConfig:
             self.windresistance = (
                 8.0  # wind resistance coefficient = area (m**2) * cw * rho (kg/m**3)
             )
-            self.max_rotation_rate_rps = np.deg2rad(15.0)  # max. rotation rate in rad/s
+            self.max_rotation_rate_rps = np.deg2rad(25.0)  # max. rotation rate in rad/s
             # </manned multirotor aircraft>
         elif vehicle == 4:
             # <quadcopter>
