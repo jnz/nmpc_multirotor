@@ -37,7 +37,7 @@ class CopterConfig:
 
         # MPC default weights (might be overwritten below per vehicle)
         # <weights>
-        self.cost_u_weight = 0.01  # weight of control inputs
+        self.cost_u_weight = 0.1  # weight of control inputs
         self.weight_q = 50.0
         self.weight_omega_roll = 80.0
         self.weight_omega_pitch = 80.0
