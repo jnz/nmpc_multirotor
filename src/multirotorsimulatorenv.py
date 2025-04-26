@@ -12,7 +12,7 @@ import random
 
 # Get the vehicle config
 from vehicleconfig import get_vehicle_config
-from render_stl import RenderStlPygame
+from visualization3d import RenderStlPygame
 from geodetic_toolbox import *
 
 # This is a simple multirotor simulation environment with an OpenAI Gym
