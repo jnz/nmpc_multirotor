@@ -7,19 +7,19 @@ real-time.
 (c) Jan Zwiener (jan@zwiener.org)
 """
 
-from pathlib import Path  # figure out the path of this file
-from acados_template import AcadosOcp, AcadosOcpSolver
 import numpy as np
 import scipy.linalg
 import time
-from multirotorenv import MultirotorEnv
-from geodetic_toolbox import *
 import pygame
-from render_stl import RenderStlPygame
 import threading
 import copy
-from mpc_copter.copter_model_position import export_copterpos_ode_model
+from pathlib import Path  # figure out path of .stl files
+from geodetic_toolbox import *
+from multirotorsimulatorenv import MultirotorSimEnv # Physic simulation
+from visualization3d import RenderStlPygame # 3D visualization
+from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import SX, vertcat, cos, sin, sqrt, sumsqr
+from mpc_copter.copter_model_position import export_copterpos_ode_model
 
 # nmpc_multirotor (main.py)
 # -------------------------
@@ -151,7 +151,7 @@ def nmpc_thread_func(vehicle_config, initial_state):
     ocp.cost.yref = setpoint_yref  # np.zeros((ny, ))    # setpoint trajectory
     ocp.cost.yref_e = setpoint_yref[0:nx]  # np.zeros((ny_e, ))  # setpoint end
 
-    print("Setpoint:")
+    print("Initial state setpoint: ", end="")
     print(setpoint_yref)
 
     ocp.constraints.constr_type = (
@@ -168,7 +168,7 @@ def nmpc_thread_func(vehicle_config, initial_state):
     ocp.constraints.x0 = x0
     ocp.constraints.idxbu = np.array(range(nu))
 
-    # <Soft Constraints> # WIP
+    # <Soft Constraints>
     # 1. Define which state indices to constrain
     constrained_state_indices = list(range(
         vehicle_config.state_cfg["omega_index"],
@@ -409,7 +409,7 @@ def main():
     global g_sim_running
 
     # Create the simulation environment
-    env = MultirotorEnv()
+    env = MultirotorSimEnv()
     g_thread_msgbox["state"] = env.state
     u = None
     predictedX = None

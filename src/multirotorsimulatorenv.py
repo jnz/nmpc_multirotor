@@ -20,9 +20,9 @@ from geodetic_toolbox import *
 
 
 # <Gym Interface>
-# class MultirotorEnv(gym.Env):
+# class MultirotorSimEnv(gym.Env):
 # </Gym Interface>
-class MultirotorEnv:
+class MultirotorSimEnv:
     def __init__(self):
         # vehicle config describes the vehicle specific properties:
         self.vehicle_config = get_vehicle_config()
