@@ -175,3 +175,26 @@ def angle_diff(a, b):
     d = a - b
     return (d + np.pi) % (2 * np.pi) - np.pi
 
+def quat_to_axis_angle(q):
+    """
+    Extract rotation axis and angle from a unit quaternion.
+
+    :param q: 4x1 orientation (unit-length) quaternion as [qw, qx, qy, qz]
+    :return: Tuple (axis, angle)
+             - axis: 3x1 unit vector describing the rotation axis
+             - angle: scalar rotation angle in radians
+    """
+    if q.shape != (4,):
+        raise ValueError("Quaternion must be a 4-element array [qw, qx, qy, qz]")
+
+    w, x, y, z = q
+
+    if np.isclose(w, 1.0, atol=1e-8):
+        return np.array([1.0, 0.0, 0.0]), 0.0  # no rotation
+
+    angle = 2 * np.arccos(w)
+    s = np.sqrt(1 - w*w)
+
+    axis = np.array([x, y, z]) / s
+    return axis, angle
+
