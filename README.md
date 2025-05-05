@@ -13,13 +13,34 @@ Prerequisites
  - A C++ compiler (e.g., gcc, clang)
  - Git
 
-For Ubuntu/Debian Linux, you can install the required packages using:
+For Ubuntu/Debian Linux and WSL with Ubuntu on Windows, you can install the
+required packages using:
 
     sudo apt update && sudo apt install -y \
         python3 python3-pip python3-venv \
         cmake \
         build-essential \
         git
+
+(Optional) For the 3D visualization via Pygame + OpenGL (PyOpenGL requires
+`libglu1-mesa` at runtime):
+
+    sudo apt update && sudo apt install -y \
+        libsdl2-2.0-0 \
+        libgl1 \
+        libglu1-mesa
+
+🔧 Note for WSL Users (Windows Subsystem for Linux)
+
+If you're running this project under WSL2 on Windows:
+
+ - The 3D visualization (Pygame + OpenGL) may show a black screen even though no errors occur.
+ - This is a known issue with WSLg + Mesa + D3D12 and some GPUs (e.g., Intel Arc).
+ - Rendering does happen internally — it's just not visible due to a framebuffer issue.
+
+Workaround: Force software rendering, by running the program like this:
+
+    LIBGL_ALWAYS_SOFTWARE=true python src/main.py
 
 # Clone and Setup
 

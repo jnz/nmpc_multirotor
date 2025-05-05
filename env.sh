@@ -7,3 +7,6 @@ else
 fi
 export ACADOS_SOURCE_DIR="$CURRENT_SCRIPT_DIR/acados"
 source venv_nmpc/bin/activate
+if grep -qEi "(microsoft|wsl)" /proc/version; then
+    echo "WSL detected – if 3D stays black, try: LIBGL_ALWAYS_SOFTWARE=true ./src/main.py"
+fi

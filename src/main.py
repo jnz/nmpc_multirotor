@@ -13,6 +13,7 @@ import time
 import pygame
 import threading
 import copy
+import traceback
 from pathlib import Path  # figure out path of .stl files
 from geodetic_toolbox import *
 from multirotorsimulatorenv import MultirotorSimEnv # Physic simulation
@@ -478,6 +479,7 @@ def main():
         renderer_active = True
     except Exception as e:
         print("OpenGL renderer init failed. Using console output.")
+        traceback.print_exc()
         renderer_active = False
         pygame.quit()
 
