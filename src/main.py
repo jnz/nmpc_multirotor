@@ -90,6 +90,7 @@ class VehicleControlState:
         self.stop_timer = 0.0     # timer to stop the vehicle
         self.desired_pos = None   # 3D position to hold
         self.yaw_ref = None       # integrated yaw
+        self.yaw_rate_rps = 0.0
 
 # This thread's job is to consume the state vector and emit a control output u
 def nmpc_thread_func(vehicle_config, initial_state):
@@ -601,7 +602,7 @@ def update_vehicle_control_state(ctrl_state, cmd_b, current_pos, current_vel, q,
     horizontal_vel_mag = np.linalg.norm(current_vel[0:2])
     slow = horizontal_vel_mag < 0.5  # m/s threshold
     # is a horizontal velocity command requested?
-    horizontal_cmd = not np.allclose(cmd_b, 0.0)
+    horizontal_cmd = not np.allclose(cmd_b[0:2], 0.0)
     # is a vertical rate command requested?
     vertical_cmd = not np.isclose(cmd_b[2], 0.0)
     yaw = quat_to_rpy(q)[2]
@@ -680,10 +681,16 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     update_vehicle_control_state(ctrl_state, cmd_b, pos, vel, q, dt_sec)
 
     # Integrate yaw
-    max_yaw_rate = vehicle_config.max_rotation_rate_rps # rad/s
-    yaw_rate_ref = yaw_cmd * max_yaw_rate
-    ctrl_state.yaw_ref += yaw_rate_ref * dt_sec
-    ctrl_state.yaw_ref = angle_diff(ctrl_state.yaw_ref, 0.0)  # wrap to -pi..pi
+    if not np.isclose(yaw_cmd, 0.0):
+        max_yaw_rate = vehicle_config.max_rotation_rate_rps # rad/s
+        ctrl_state.yaw_rate_rps = yaw_cmd * max_yaw_rate
+        ctrl_state.yaw_ref += ctrl_state.yaw_rate_rps * dt_sec
+        ctrl_state.yaw_ref = angle_diff(ctrl_state.yaw_ref, 0.0)  # wrap to -pi..pi
+    else:
+        if not np.isclose(ctrl_state.yaw_rate_rps, 0.0):
+            ctrl_state.yaw_ref = yaw
+            ctrl_state.yaw_rate_rps = 0.0
+            print("Yaw setpoint: %.1f" % (np.rad2deg(ctrl_state.yaw_ref)))
 
     # Velocity in nav frame
     if np.allclose(cmd_b, 0.0):
@@ -708,7 +715,7 @@ def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
     roll_ref = np.arctan(F_y / (m * g))
     pitch_ref = -np.arctan(F_x / (m * g))
     q_ref = quat_from_rpy(roll_ref, pitch_ref, ctrl_state.yaw_ref)
-    omega_ref = np.array([0.0, 0.0, yaw_rate_ref])
+    omega_ref = np.array([0.0, 0.0, ctrl_state.yaw_rate_rps])
 
     # Reference position
     pos_ref = ctrl_state.desired_pos
