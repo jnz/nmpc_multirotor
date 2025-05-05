@@ -598,10 +598,11 @@ def update_vehicle_control_state(ctrl_state, cmd_b, current_pos, current_vel, q,
     # helper function for vehicle_control function
     # updating the vehicle control state machine
 
-    vel_mag = np.linalg.norm(current_vel)
-    stopping = np.allclose(cmd_b, 0.0)
-    slow = vel_mag < 0.5  # m/s threshold
-    # is a vertical command requested?
+    horizontal_vel_mag = np.linalg.norm(current_vel[0:2])
+    slow = horizontal_vel_mag < 0.5  # m/s threshold
+    # is a horizontal velocity command requested?
+    horizontal_cmd = not np.allclose(cmd_b, 0.0)
+    # is a vertical rate command requested?
     vertical_cmd = not np.isclose(cmd_b[2], 0.0)
     yaw = quat_to_rpy(q)[2]
 
@@ -620,29 +621,31 @@ def update_vehicle_control_state(ctrl_state, cmd_b, current_pos, current_vel, q,
     # if np.abs(angle_diff(yaw, ctrl_state.yaw_ref)) > np.deg2rad(10.0):
     #     ctrl_state.yaw_ref = yaw
 
-    elif ctrl_state.mode == "MOVE":
+    if ctrl_state.mode == "MOVE":
+        # drag along current horizontal position while moving
         ctrl_state.desired_pos[0] = current_pos[0]
         ctrl_state.desired_pos[1] = current_pos[1]
-        if stopping:
+        # horizontal movement no longer requested?
+        if not horizontal_cmd:
             ctrl_state.mode = "BRAKE"
             ctrl_state.stop_timer = 0.0
             print("braking...")
 
     elif ctrl_state.mode == "BRAKE":
+        # drag along current horizontal position while braking
         ctrl_state.desired_pos[0] = current_pos[0]
         ctrl_state.desired_pos[1] = current_pos[1]
-        if not stopping:
+        ctrl_state.stop_timer += dt_sec
+        if horizontal_cmd:
             ctrl_state.mode = "MOVE"
-        elif slow:
-            ctrl_state.stop_timer += dt_sec
-            if ctrl_state.stop_timer > 0.75:
-                ctrl_state.mode = "HOLD"
-                print("HOLD vehicle to position: %.2f %.2f %.2f" % (ctrl_state.desired_pos[0], ctrl_state.desired_pos[1], ctrl_state.desired_pos[2]))
-        else:
-            ctrl_state.stop_timer = 0.0
+        elif slow or ctrl_state.stop_timer >= 5.0:
+            ctrl_state.mode = "HOLD"
+            print("HOLD vehicle to position: %.2f %.2f %.2f. Stop Timer: %.1f s. Hor. velocity: %.2f m/s." %
+                  (ctrl_state.desired_pos[0], ctrl_state.desired_pos[1], ctrl_state.desired_pos[2],
+                   ctrl_state.stop_timer, horizontal_vel_mag))
 
     elif ctrl_state.mode == "HOLD":
-        if not stopping:
+        if horizontal_cmd:
             ctrl_state.mode = "MOVE"
 
 def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
