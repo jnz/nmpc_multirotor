@@ -116,48 +116,29 @@ def quat_multiply(q1, q2):
     ])
     return q_matrix @ q2
 
-def attitude_step(dt_sec, q, omega, torque_b, J, Jinv):
+def quat_integrate_rotationrate(q, omega, dt_sec):
     """
-    Rigid body attitude simulation step. Update the aircraft attitude based on
-    torque coming from motors, wind and other torques acting on the body.
-
-    Update attitude based on Euler's rigid body dynamics equations:
-
-        J*omega_dot + omega x J* omega = torque
-
-    Args:
-        dt_sec: Simulation timestep in seconds (>= 0)
-        q: 4x1 quaternion (from "body" to "n-frame"/ref. nav. frame). Hamilton
-           convention, unit length quaternion q.
-           q = q(1) + q(2)*i + q(3)*j + q(4)*k, with i*i=j*j=k*k=i*j*k=-1
-        omega: Rotation rate (rad/s) of body wrt. ref. nav-frame (in body frame coord. system)
-           (basically the 3x1 gyroscope measurement in rad/s)
-        torque_b: 3 x 1 torque in Nm acting on body
-        J: 3 x 3 inertia matrix of object in body frame (kg*m*m)
-        Jinv: 3 x 3 inverse of J
-
-    Returns:
-        qnext: 4x1 Attitude quaternion after this simulation step.
-        omeganext: 3x1 rotation rate (rad/s) of body wrt. ref. nav-frame (in
-                   body frame coord. system) after this simulation step.
+    Integrate the rotation rate omega over dt_sec to get the new quaternion.
+    :param q: 4x1 quaternion (from "body" to "n-frame"/ref. nav. frame). Hamilton.
+    :param omega: Rotation rate (rad/s) of body wrt. ref. nav-frame (in body
+                  frame coord. system)
+    :param dt_sec: Simulation timestep in seconds (>= 0)
+    :return: qnext: 4x1 quaternion after dt_sec seconds
     """
-    omega_cross = np.array([ [ 0,        -omega[2],  omega[1]],
-                             [ omega[2],  0,        -omega[0]],
-                             [-omega[1],  omega[0],  0 ] ])
-    omega_dot = Jinv@(torque_b - omega_cross@J@omega)
-    omeganext = omega + omega_dot*dt_sec
+    assert q.shape == (4,), "Invalid arguments"
+    assert omega.shape == (3,), "Invalid arguments"
 
     delta = omega*dt_sec
-    delta_abs = np.sqrt( delta @ delta )
-    if delta_abs > 1e-6:
+    delta_abs = np.linalg.norm(delta)
+    if delta_abs > 1e-8:
         img_part = delta / delta_abs * np.sin(delta_abs*0.5)
         qr = np.block([ np.cos(delta_abs*0.5), img_part ])
-        qnext = quat_multiply(q, qr)
+        qnext = quat_multiply(q, qr) #  qnext = q ⊗ qr
         qnext = quat_norm(qnext)
     else:
-        qnext = q
+        qnext = q.copy()
 
-    return qnext, omeganext
+    return qnext
 
 def quat_invert(q):
     """
