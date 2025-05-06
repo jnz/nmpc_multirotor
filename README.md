@@ -76,7 +76,3 @@ Use these keys to manually influence the drone:
 | `j` / `k`   | Vertical thrust     | Up / Down     |
 | `h` / `l`   | Yaw (rotation)      | Left / Right  |
 
-- Arrow keys: Horizontal translation (XY-plane)
-- `j`/`k`: Climb/descend
-- `h`/`l`: Rotate yaw left/right
-
