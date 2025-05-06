@@ -52,13 +52,18 @@ This will:
 
  - Check out the correct acados version
  - Build acados with required options
- - Create a Python virtual environment (venv_nmpc)
+ - Create a Python virtual environment (`venv_nmpc`)
  - Install all dependencies
 
 # 🚀 Running
 
     source env.sh
     ./src/main.py
+
+Note: On the first run acados will ask you to download the Tera renderer, press `y`:
+
+    Do you wish to set up Tera renderer automatically?
+    y/N? (press y to download tera or any key for manual installation)
 
 # 🕹️ Controls
 
