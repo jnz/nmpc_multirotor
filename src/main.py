@@ -388,13 +388,12 @@ def sim_thread_func(env):
             print("FPS=%3i SIM=%4i MPC=%3i" % (render_fps, sim_step_counter, mpc_fps), end=" ")
             last_fps_update = timestamp_current
 
-            sum_power_mech_kw = np.sum(env.motor_power_mech_kw)
+            # sum_power_mech_kw = np.sum(env.motor_power_mech_kw)
             sim_step_counter = 0
             print(
-                "%9.3fs KW=%5.2f NED=(%6.2f,%6.2f,%6.2f m) V=(%6.1f,%6.1f,%6.1f m/s) RPY=(%6.1f,%6.1f,%6.1f °) o=(%6.1f,%6.1f,%6.1f °/s) gamma=(%7.3f,%7.3f,%6.3f,%7.1f) u="
+                "%.3fs (%6.2f,%6.2f,%6.2f)m (%5.1f,%5.1f,%5.1f)m/s φ=%5.1f° θ=%5.1f° ψ=%6.1f° ω(%6.1f,%5.1f,%6.1f)°/s γ(%9.3fNm,%9.3fNm,%9.3fNm,%8.2fN) u="
                 % (
                     timestamp_current - TIMESTAMP_START,
-                    sum_power_mech_kw,
                     env.pos_n[0],
                     env.pos_n[1],
                     env.pos_n[2],
@@ -416,7 +415,7 @@ def sim_thread_func(env):
             )
             for elem in u:
                 print("%2.0f" % (elem * 99.0), end=" ")
-            print("")
+            print("%")
 
 
 def main():
