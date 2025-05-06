@@ -3,11 +3,11 @@ name = "nmpc_multirotor"
 version = "1.0.0"
 
 dependencies = [
-    "numpy>=1.21.2",
-    "numpy-stl>=3.0.1",
-    "scipy>=1.5.2",
-    "pygame>=2.5.0",
-    "PyOpenGL>=3.1.7",
+    "numpy>=1.21.2,<3.0.0",
+    "numpy-stl>=3.0.1,<4.0.0",
+    "scipy>=1.5.2,<2.0.0",
+    "pygame>=2.5.0,<3.0.0",
+    "PyOpenGL>=3.1.7,<4.0.0",
     "casadi==3.7.0",
 ]
 
