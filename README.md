@@ -32,13 +32,13 @@ required packages using:
 
 🔧 Note for WSL Users (Windows Subsystem for Linux)
 
-If you're running this project under WSL2 on Windows:
+This project runs fine on Windows with WSL2 and Ubuntu, but is untested on a
+native Windows installation.
 
- - The 3D visualization (Pygame + OpenGL) may show a black screen even though no errors occur.
- - This is a known issue with WSLg + Mesa + D3D12 and some GPUs (e.g., Intel Arc).
- - Rendering does happen internally — it's just not visible due to a framebuffer issue.
-
-Workaround: Force software rendering, by running the program like this:
+There is a known issue with WSLg + Mesa + D3D12 and some GPUs (e.g., Intel
+Arc).  Rendering does happen internally — it's just not visible due to a
+framebuffer issue. Workaround: Force software rendering, by running the program
+like this:
 
     LIBGL_ALWAYS_SOFTWARE=true python src/main.py
 
