@@ -13,15 +13,27 @@ This repository contains the implementation of a
 real-time capable Nonlinear Model Predictive Control (NMPC) for multirotor
 aircrafts (e.g. quadcopter, hexacopter, octocopter, etc.).
 
-* **~70% faster solve times** for highly redundant setups (e.g., 32 rotors).
 * **Direct handling of actuator limits** within the NMPC, completely eliminating the need for a separate control allocation step.
 * **Built-in compensation** for the delayed thrust response of (slow) motors.
+* **~70% faster solve times** for highly redundant setups (e.g., 32 rotors).
 
 **Hybrid Architecture for Simulation & Embedded Deployment:**
 1. **The Simulation (Python):** The 6-DoF rigid-body physics simulation (incl. obstacle simulation) and the OpenGL 3D visualization are written in Python.
-2. **The Controller (C via acados):** The actual NMPC solver is powered by the [`acados`](https://github.com/acados/acados) library. `acados` generates highly optimized, real-time capable **C code**.
+2. **The Controller (C via acados):** The actual NMPC solver is powered by the [`acados`](https://github.com/acados/acados) library. acados generates highly optimized, real-time capable **C code**.
 
-The generated C code has been tested to run in real-time on embedded platforms like the **NVIDIA Jetson TX2** (using the *Arm Cortex-A57 CPU*, there are no GPU dependencies).
+
+## MCU requirements
+
+The generated NMPC C code runs comfortably in real-time at 100 Hz for a complex
+18-actuator setup with a prediction horizon of several seconds. This was
+successfully tested on the Arm Cortex-A57 CPU (NVIDIA Jetson TX2), relying
+entirely on the CPU without any GPU acceleration.
+
+*Note on Hardware*: The generated code uses double-precision floating-point
+support. While processors like the Cortex-A series handle
+this, smaller microcontrollers, such as the Cortex-M series,
+typically lack the computational power and hardware FPU (with double
+precision) required for this software.
 
 # Repository Structure
 
