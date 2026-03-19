@@ -4,7 +4,8 @@
 
 NMPC Multirotor Drone Flight Control
 
-![NMPC Multirotor Simulation](img/nmpc_multirotor.gif)
+![NMPC Multirotor Simulation GIF](img/nmpc_multirotor.gif)
+Real-time visualization GIF (aircraft is white, NMPC prediction drawn in blue).
 
 # Setup
 
