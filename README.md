@@ -74,14 +74,11 @@ in a closed-loop simulation, rendered by `visualization3d.py`.
 For Ubuntu/Debian Linux and WSL with Ubuntu on Windows, install the
 required packages:
 
-    sudo apt update && sudo apt install -y \
-        python3 python3-pip python3-venv \
-        cmake build-essential git
-
-(Optional) For the 3D visualization via Pygame + OpenGL (PyOpenGL requires
-`libglu1-mesa` at runtime):
-
     sudo apt update
+    sudo apt install python3 python3-pip python3-venv cmake build-essential git
+
+For the 3D visualization via OpenGL (PyOpenGL requires `libglu1-mesa` at runtime):
+
     sudo apt install libsdl2-2.0-0 libgl1 libglu1-mesa
 
 ## Clone and Setup
