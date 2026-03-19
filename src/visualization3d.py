@@ -82,7 +82,7 @@ class RenderStlPygame:
             self.terrain_display_list = glGenLists(1)
             glNewList(self.terrain_display_list, GL_COMPILE)
             # <fill_list>
-            X, Y, Z, N = perlin_tile(-250.0, 250.0, -250.0, 250.0, 5.0, 0.6)
+            X, Y, Z, N = perlin_tile(-250.0, 250.0, -250.0, 250.0, 2.5, 0.6)
             glColor3f(1.0, 1.0, 1.0)
             for i in range(2, X.shape[0] - 1):
                 for j in range(2, X.shape[1] - 1):
@@ -242,9 +242,6 @@ class RenderStlPygame:
         glDisable(GL_LIGHTING)
         glDisable(GL_LIGHT0)
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE)
-
-        glTranslatef(0.0, 0.01, 0.0)  # bump up wireframe a bit over the terrain
-        self.render_terrain()
 
         # draw prediction as 'ghosts' with alpha blending
         if predictedX is not None:
