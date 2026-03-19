@@ -1,20 +1,23 @@
 # nmpc_multirotor
+
+[![DOI](https://img.shields.io/badge/DOI-10.1109%2FTCST.2026.3672184-blue)](https://doi.org/10.1109/TCST.2026.3672184)
+
 NMPC Multirotor Drone Flight Control
 
 ![LOGO](img/logo.png)
 
-# 🛠️ Setup
+# Setup
 
 Prerequisites
 
  - Linux, macOS or WSL on Windows
  - Python 3.8+
  - CMake
- - A C++ compiler (e.g., gcc, clang)
+ - A C/C++ compiler (e.g., gcc, clang)
  - Git
 
-For Ubuntu/Debian Linux and WSL with Ubuntu on Windows, you can install the
-required packages using:
+For Ubuntu/Debian Linux and WSL with Ubuntu on Windows, install the
+required packages:
 
     sudo apt update && sudo apt install -y \
         python3 python3-pip python3-venv \
@@ -30,15 +33,12 @@ required packages using:
         libgl1 \
         libglu1-mesa
 
-🔧 Note for WSL Users (Windows Subsystem for Linux)
+## Note for WSL Users (Windows Subsystem for Linux)
 
-This project runs fine on Windows with WSL2 and Ubuntu, but is untested on a
-native Windows installation.
+This project runs fine on Windows with WSL2 and Ubuntu.
 
-There is a known issue with WSLg + Mesa + D3D12 and some GPUs (e.g., Intel
-Arc).  Rendering does happen internally — it's just not visible due to a
-framebuffer issue. Workaround: Force software rendering, by running the program
-like this:
+Windows WSL (WSLg + Mesa + D3D12) can have issues with hardware rendering on some GPUs (e.g. Intel
+Arc). Workaround: Force software rendering:
 
     LIBGL_ALWAYS_SOFTWARE=true python src/main.py
 
@@ -48,16 +48,14 @@ like this:
     cd nmpc_multirotor
     ./setup.sh
 
-This will:
-
- - Check out the correct acados version
+ - Check out the correct acados version as git submodule
  - Build acados with required options
  - Create a Python virtual environment (`venv_nmpc`)
- - Install all dependencies
+ - Install the Python dependencies
 
-# 🚀 Running
+# Running
 
-    source env.sh
+    source env.sh   # for the virtual env.
     ./src/main.py
 
 Note: On the first run acados will ask you to download the Tera renderer, press `y`:
@@ -65,7 +63,7 @@ Note: On the first run acados will ask you to download the Tera renderer, press 
     Do you wish to set up Tera renderer automatically?
     y/N? (press y to download tera or any key for manual installation)
 
-# 🕹️ Controls
+# Controls
 
 Use these keys to manually influence the drone:
 
@@ -75,4 +73,24 @@ Use these keys to manually influence the drone:
 | ↓ / ↑       | Longitudinal       | Back / Forward|
 | `j` / `k`   | Vertical thrust     | Up / Down     |
 | `h` / `l`   | Yaw (rotation)      | Left / Right  |
+
+# Citation
+
+If you find this code useful in your research, please consider citing our paper:
+
+> J. Zwiener, J. Stephan and C. Seiferth, "Real-Time Nonlinear Model Predictive Control of Large Multirotor Aircraft," in *IEEE Transactions on Control Systems Technology*, doi: [10.1109/TCST.2026.3672184](https://doi.org/10.1109/TCST.2026.3672184).
+
+## BibTeX
+
+```bibtex
+@article{zwiener2026nmpc,
+  author={Zwiener, Jan and Stephan, Johannes and Seiferth, Christoph},
+  journal={IEEE Transactions on Control Systems Technology},
+  title={Real-Time Nonlinear Model Predictive Control of Large Multirotor Aircraft},
+  year={2026},
+  volume={},
+  number={},
+  pages={1-7},
+  doi={10.1109/TCST.2026.3672184}}
+```
 
