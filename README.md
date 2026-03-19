@@ -4,7 +4,7 @@
 
 NMPC Multirotor Drone Flight Control
 
-![LOGO](img/logo.png)
+![NMPC Multirotor Simulation](img/nmpc_multirotor.gif)
 
 # Setup
 
@@ -21,26 +21,13 @@ required packages:
 
     sudo apt update && sudo apt install -y \
         python3 python3-pip python3-venv \
-        cmake \
-        build-essential \
-        git
+        cmake build-essential git
 
 (Optional) For the 3D visualization via Pygame + OpenGL (PyOpenGL requires
 `libglu1-mesa` at runtime):
 
-    sudo apt update && sudo apt install -y \
-        libsdl2-2.0-0 \
-        libgl1 \
-        libglu1-mesa
-
-## Note for WSL Users (Windows Subsystem for Linux)
-
-This project runs fine on Windows with WSL2 and Ubuntu.
-
-Windows WSL (WSLg + Mesa + D3D12) can have issues with hardware rendering on some GPUs (e.g. Intel
-Arc). Workaround: Force software rendering:
-
-    LIBGL_ALWAYS_SOFTWARE=true python src/main.py
+    sudo apt update
+    sudo apt install libsdl2-2.0-0 libgl1 libglu1-mesa
 
 # Clone and Setup
 
@@ -73,6 +60,15 @@ Use these keys to manually influence the drone:
 | ↓ / ↑       | Longitudinal       | Back / Forward|
 | `j` / `k`   | Vertical thrust     | Up / Down     |
 | `h` / `l`   | Yaw (rotation)      | Left / Right  |
+
+# Note for WSL Users (Windows Subsystem for Linux)
+
+This project runs fine on Windows with WSL2 and Ubuntu.
+
+Windows WSL (WSLg + Mesa + D3D12) can have issues with hardware rendering on some GPUs (e.g. Intel
+Arc). Workaround: Force software rendering:
+
+    LIBGL_ALWAYS_SOFTWARE=true python src/main.py
 
 # Citation
 
