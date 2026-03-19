@@ -1,15 +1,31 @@
-# nmpc_multirotor
+# nmpc_multirotor - NMPC Multirotor Drone Flight Control
 
 [![DOI](https://img.shields.io/badge/DOI-10.1109%2FTCST.2026.3672184-blue)](https://doi.org/10.1109/TCST.2026.3672184)
 
-NMPC Multirotor Drone Flight Control
 
 ![NMPC Multirotor Simulation GIF](img/nmpc_multirotor.gif)
 Real-time visualization GIF (aircraft is white, NMPC prediction drawn in blue).
 
-# Setup
+## About this Project
 
-Prerequisites
+This repository contains the implementation of a
+real-time capable Nonlinear Model Predictive Control (NMPC) for multirotor
+aircrafts (multicopter drones).
+
+* **~70% faster solve times** for highly redundant setups (e.g., 32 rotors).
+* **Direct handling of actuator limits** within the NMPC, completely eliminating the need for a separate control allocation step.
+* **Built-in compensation** for the delayed thrust response of (slow) motors.
+
+**Hybrid Architecture for Simulation & Embedded Deployment:**
+To make this project both easy to use and hardware-ready, we split the architecture:
+1. **The Simulation (Python):** The 6-DoF rigid-body physics simulation (incl. obstacle simulation) and the OpenGL 3D visualization are written in Python.
+2. **The Controller (C via acados):** The actual NMPC solver is powered by the [`acados`](https://github.com/acados/acados) library. `acados` generates highly optimized, real-time capable **C code**.
+
+The generated C code has been tested to run in real-time on embedded platforms like the **NVIDIA Jetson TX2** (using the Arm Cortex-A57 CPU, there are no GPU dependencies).
+
+# Installation
+
+## Prerequisites
 
  - Linux, macOS or WSL on Windows
  - Python 3.8+
@@ -30,7 +46,7 @@ required packages:
     sudo apt update
     sudo apt install libsdl2-2.0-0 libgl1 libglu1-mesa
 
-# Clone and Setup
+## Clone and Setup
 
     git clone --recurse-submodules https://github.com/jnz/nmpc_multirotor.git
     cd nmpc_multirotor
@@ -41,7 +57,7 @@ required packages:
  - Create a Python virtual environment (`venv_nmpc`)
  - Install the Python dependencies
 
-# Running
+## Running
 
     source env.sh   # for the virtual env.
     ./src/main.py
@@ -51,7 +67,7 @@ Note: On the first run acados will ask you to download the Tera renderer, press 
     Do you wish to set up Tera renderer automatically?
     y/N? (press y to download tera or any key for manual installation)
 
-# Controls
+# Simulation Controls
 
 Use these keys to manually influence the drone:
 
