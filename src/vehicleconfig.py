@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 
 
 class CopterConfig:
-    def __init__(self):
+    def __init__(self, vehicle=18):
 
         # Basic model
 
@@ -60,8 +60,6 @@ class CopterConfig:
             0.92  # elect. power * efficiency_propulsion_system = mech. power
         )
         self.motor_blockage_factor = 1.0  # 1.0 means by default no thrust is lost in the structure
-
-        vehicle = 18  # default vehicle has 18 rotors
 
         if vehicle == 18:
             # <manned multirotor aircraft>
