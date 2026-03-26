@@ -79,7 +79,7 @@ except ImportError as e:
 # ---------------------------------------------------------------------------
 TARGETS = {
     "stm32n6": dict(
-        description    = "STM32N6  (Cortex-M55, FPv5-D16, 600 MHz)",
+        description    = "STM32N6  (Cortex-M55, FPv5-D16, 800 MHz)",
         # BLASFEO has no Cortex-M kernels; GENERIC = plain C, works everywhere.
         # cmake_c_flags go to the acados cmake build only — no -mcpu here because
         # BLASFEO GENERIC sets its own -march internally and mixing them causes
@@ -90,8 +90,10 @@ TARGETS = {
         ar             = "arm-none-eabi-ar",
         # -w suppresses the harmless "-mcpu conflicts with -march" warning
         # that BLASFEO GENERIC emits when it appends its own -march internally.
-        cmake_c_flags  = "-mcpu=cortex-m55 -mthumb -mfloat-abi=hard -mfpu=fpv5-d16 -O2 -ffast-math -w",
-        c_flags        = "-march=armv8.1-m.main+fp+dsp+mve.fp -mthumb -mfloat-abi=hard -mfpu=fpv5-d16"
+        # All objects must be Thumb-mode — Cortex-M has no ARM mode.
+        # -mthumb-interwork ensures consistent ARM/Thumb calling convention.
+        cmake_c_flags  = "-mcpu=cortex-m55 -mthumb -mthumb-interwork -mfloat-abi=hard -mfpu=fpv5-d16 -O2 -ffast-math -w",
+        c_flags        = "-mcpu=cortex-m55 -mthumb -mthumb-interwork -mfloat-abi=hard -mfpu=fpv5-d16"
                          " -O2 -ffast-math -ffunction-sections -fdata-sections",
         c_defs         = "-DBLASFEO_TARGET_GENERIC"
                          " -DHPIPM_TARGET_EMBEDDED -DACADOS_SILENT",
@@ -103,8 +105,8 @@ TARGETS = {
         hpipm_target   = "EMBEDDED",
         cc             = "arm-none-eabi-gcc",
         ar             = "arm-none-eabi-ar",
-        cmake_c_flags  = "-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16 -O2 -ffast-math -w",
-        c_flags        = "-mcpu=cortex-m4 -mthumb -mfloat-abi=hard -mfpu=fpv4-sp-d16"
+        cmake_c_flags  = "-mcpu=cortex-m4 -mthumb -mthumb-interwork -mfloat-abi=hard -mfpu=fpv4-sp-d16 -O2 -ffast-math -w",
+        c_flags        = "-mcpu=cortex-m4 -mthumb -mthumb-interwork -mfloat-abi=hard -mfpu=fpv4-sp-d16"
                          " -O2 -ffast-math -ffunction-sections -fdata-sections",
         c_defs         = "-DBLASFEO_TARGET_GENERIC"
                          " -DHPIPM_TARGET_EMBEDDED -DACADOS_SILENT",
@@ -595,7 +597,7 @@ MAKEFILE_TEMPLATE = """\
 #
 # After 'make' host project only needs:
 #   Headers : nmpc_copter.h   (single public API header)
-#   Libs    : -lnmpc  -lacados  -lblasfeo  -lhpipm  -lm
+#   Libs    : -lnmpc  -lacados -lhpipm -lblasfeo -lm
 #   Libdir  : -L$(NMPC_DIR)/libs
 #
 # Usage:
@@ -657,6 +659,7 @@ $(OBJ_DIR)/%.o: %.c
 # --- acados static libs (via cmake) --------------------------------------
 
 $(LIBS_DIR)/libacados.a: $(BUILD_DIR)/Makefile
+\tCFLAGS="$(CMAKE_C_FLAGS_TARGET)" CXXFLAGS="$(CMAKE_C_FLAGS_TARGET)" \\
 \t$(MAKE) -C $(BUILD_DIR) -j$$(nproc 2>/dev/null || echo 4) blasfeo hpipm acados
 \t@mkdir -p $(LIBS_DIR)
 \t@# acados cmake places libs in subdirs of the build tree; use find to be robust
@@ -668,11 +671,20 @@ $(LIBS_DIR)/libacados.a: $(BUILD_DIR)/Makefile
 \t@test -f $(LIBS_DIR)/libblasfeo.a || (echo "ERROR: libblasfeo.a not found"; exit 1)
 \t@test -f $(LIBS_DIR)/libhpipm.a   || (echo "ERROR: libhpipm.a not found"; exit 1)
 
+# CFLAGS/CXXFLAGS are exported inline so that BLASFEO's internal
+# build system picks them up — cmake -DCMAKE_C_FLAGS alone is
+# not sufficient because BLASFEO GENERIC runs its own sub-make.
+CMAKE_C_FLAGS_TARGET := {cmake_c_flags}
+
 $(BUILD_DIR)/Makefile: {toolchain_file}
 \t@echo "Configuring acados for {target_id} ..."
 \t@mkdir -p $(BUILD_DIR)
+\tCFLAGS="$(CMAKE_C_FLAGS_TARGET)" \\
+\tCXXFLAGS="$(CMAKE_C_FLAGS_TARGET)" \\
 \tcmake -S $(ACADOS_ROOT) -B $(BUILD_DIR) \\
 \t    {toolchain_flag}\\
+\t    -DCMAKE_TRY_COMPILE_TARGET_TYPE=STATIC_LIBRARY \\
+\t    -DCMAKE_C_FLAGS="$(CMAKE_C_FLAGS_TARGET)" \\
 \t    -DBLASFEO_TARGET={blasfeo_target} \\
 \t    -DHPIPM_TARGET={hpipm_target} \\
 \t    -DACADOS_WITH_QPOASES=OFF \\
@@ -793,11 +805,11 @@ make clean     # remove build artefacts
 Requires `cmake` and `{cc}` on PATH.
 Output: `libs/libnmpc.a`, `libs/libacados.a`, `libs/libblasfeo.a`, `libs/libhpipm.a`.
 
-## Step 2 - add to Makefile project
+## Step 2 - add to STM32CubeIDE / Makefile project
 
 After `make` completes it prints the exact snippet to paste.
 
-You only need **one header** and **four static libs** — no C sources to add to project:
+You only need **one header** and **four static libs** — no C sources to add to the project:
 
 ```makefile
 NMPC_DIR := /path/to/{outdir_basename}
@@ -806,7 +818,7 @@ NMPC_DIR := /path/to/{outdir_basename}
 C_INCLUDES += -I$(NMPC_DIR)
 
 # Four libs - no C sources needed in project
-LIBS   += -lnmpc -lacados -lblasfeo -lhpipm -lm
+LIBS   += -lnmpc -lacados -lhpipm -lblasfeo -lm
 LIBDIR += -L$(NMPC_DIR)/libs
 ```
 
@@ -1037,11 +1049,11 @@ def generate(vehicle_id: int, target_id: str, outdir: str):
     print("\nDone.")
     print("\nNext steps:")
     print("  cd %s" % os.path.relpath(outdir))
-    print("  make           # builds libnmpc.a + libacados.a + libblasfeo.a + libhpipm.a")
+    print("  make           # builds libnmpc.a + libacados.a + libhpipm.a + libblasfeo.a")
     print("  make info      # show full build configuration")
     print("\nThen in host project:")
     print("  C_INCLUDES += -I%s" % os.path.relpath(outdir))
-    print("  LIBS       += -lnmpc -lacados -lblasfeo -lhpipm -lm")
+    print("  LIBS       += -lnmpc -lacados -lhpipm -lblasfeo -lm")
     print("  LIBDIR     += -L%s/libs" % os.path.relpath(outdir))
     if target.get("notes"):
         print("\nNote: %s" % target["notes"])
