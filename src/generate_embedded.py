@@ -640,7 +640,7 @@ all: $(LIBS_DIR)/libacados.a $(LIBS_DIR)/libnmpc.a
 \t@echo ""
 \t@echo "Add to host project:"
 \t@echo "  C_INCLUDES += -I$(realpath .)                  (for nmpc_copter.h)"
-\t@echo "  LIBS       += -lnmpc -lacados -lblasfeo -lhpipm -lm"
+\t@echo "  LIBS       += -lnmpc -lacados -lhpipm -lblasfeo -lm"
 \t@echo "  LIBDIR     += -L$(realpath $(LIBS_DIR))"
 
 # --- libnmpc.a -----------------------------------------------------------
