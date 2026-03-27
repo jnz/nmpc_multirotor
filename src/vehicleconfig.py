@@ -11,7 +11,6 @@ import matplotlib.pyplot as plt
 # actuator positions, .stl file path for the renderer, etc.).
 # The vehicle is defined in a NED frame (North, East, Down).
 
-
 class CopterConfig:
     def __init__(self, vehicle=18):
 
@@ -49,8 +48,8 @@ class CopterConfig:
         self.weight_velocity_vertical = 120.0
         # </weights>
 
-        self.umin = 0.15  # box constaints on control input (min. u)
-        self.umax = 1.00  # box constaints on control input (max. u)
+        self.umin = 0.15  # box constraints on control input (min. u)
+        self.umax = 1.00  # box constraints on control input (max. u)
         self.rho = 1.225  # air density (kg/m^3)
         self.gravity_n = np.array([0, 0, 9.81])  # gravity in NED frame (m/s^2)
         self.max_tilt_angle_rad = np.deg2rad(25.0)

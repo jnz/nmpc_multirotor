@@ -14,7 +14,7 @@ import pygame
 import threading
 import copy
 import traceback
-from pathlib import Path  # figure out path of .stl files
+from pathlib import Path  # to figure out path of .stl files
 from geodetic_toolbox import *
 from multirotorsimulatorenv import MultirotorSimEnv # Physic simulation
 from visualization3d import RenderStlPygame # 3D visualization
@@ -75,9 +75,9 @@ g_thread_msgbox = {
     "nmpc_time_min": 0.0,  # debug information on NMPC: lowest frame time seen in seconds
     "nmpc_time_avg": 0.0,  # debug information on NMPC: average frame time in seconds
     "nmpc_time_std": 0.0,  # debug information on NMPC: standard deviation
-    # state                            # current state vector from simulation thread
-    # u                                # control input from NMPC to simulation thread
-    # predictedX                       # predicted state over the MPC horizon
+    # state                # current state vector from simulation thread
+    # u                    # control input from NMPC to simulation thread
+    # predictedX           # predicted state over the MPC horizon
 }
 g_thread_msgbox_lock = threading.Lock()  # only access g_thread_msgbox with this lock
 g_sim_running = True  # Run application as long as this is set to True
@@ -103,7 +103,6 @@ def nmpc_thread_func(vehicle_config, initial_state):
 
     ocp = AcadosOcp()  # create ocp object to formulate the OCP
 
-    # model = export_copter_ode_model()
     model = export_copterpos_ode_model(vehicle_config)
     ocp.model = model
 
