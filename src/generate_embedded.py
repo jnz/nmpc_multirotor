@@ -201,9 +201,31 @@ def build_ocp(vehicle_config):
     # ocp.cost.zl = np.zeros(ns)
     # ocp.cost.zu = np.zeros(ns)
 
-    # ocp.solver_options.qp_solver_cond_N = N_horizon
+    # 1. Define Non-Uniform Grid
+    # shooting_nodes = np.array([0.0, 0.01, 0.02, 0.04, 0.08, 0.15, 0.3, 0.5])
+    shooting_nodes = np.array([0.0, 0.01, 0.02, 0.05, 0.15, 0.4])
+
+    # Werte dynamisch aus dem Array ableiten
+    N_horizon = len(shooting_nodes) - 1
+    Tf        = shooting_nodes[-1]
+
+    # Dem OCP-Objekt übergeben
+    ocp.solver_options.N_horizon      = N_horizon
+    ocp.solver_options.tf             = Tf
+    ocp.solver_options.shooting_nodes = shooting_nodes
+
+    # 2. Save Integrator
+    # num_steps_arr = np.array([1,    1,    2,    4,    7,   15,   20])
+    num_steps_arr   = np.array([1,    1,    2,    4,    8  ])
+
+    # Supply array instead of number for num_steps
+    ocp.solver_options.num_steps = num_steps_arr
+    ocp.solver_options.num_stages = 4 # (Euler, RK2, RK4)
+
+    # 3. Adjust QP-Solver to N
+
     # ocp.solver_options.qp_solver      = "PARTIAL_CONDENSING_HPIPM"
-    # ocp.solver_options.qp_solver_cond_N = 4
+    # ocp.solver_options.qp_solver_cond_N = N_horizon
 
     ocp.solver_options.qp_solver       = "FULL_CONDENSING_HPIPM"
     ocp.solver_options.qp_solver_cond_N = 0
@@ -212,13 +234,9 @@ def build_ocp(vehicle_config):
 
     ocp.solver_options.hessian_approx   = "GAUSS_NEWTON"
     ocp.solver_options.integrator_type  = "ERK"
-    ocp.solver_options.num_stages       = 1
-    ocp.solver_options.num_steps        = 1
     ocp.solver_options.nlp_solver_type  = "SQP_RTI"
-    ocp.solver_options.tf               = Tf
     ocp.solver_options.qp_solver_warm_start = 1
     ocp.solver_options.qp_solver_iter_max = 10
-
 
     return ocp, model, nx, nu, ny, N_horizon, Tf
 

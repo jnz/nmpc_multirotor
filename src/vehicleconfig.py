@@ -189,9 +189,9 @@ class CopterConfig:
             self.max_rotation_rate_rps = np.deg2rad(100.0)  # max. rotation rate in rad/s
 
             # Embedded Config
-            self.Tf_embedded = 0.25
-            self.N_horizon_embedded = 4
-            self.mpc_hz_embedded = 100
+            self.mpc_hz_embedded = 100.0
+            self.N_horizon_embedded = 6
+            self.Tf_embedded = self.N_horizon_embedded * (1 / self.mpc_hz_embedded)
             # </quadcopter>
         else:
             assert False, "Unknown vehicle type %i" % (vehicle)
