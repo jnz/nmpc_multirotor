@@ -138,8 +138,8 @@ class CopterConfig:
             self.max_rotation_rate_rps = np.deg2rad(25.0)  # max. rotation rate in rad/s
 
             # Embedded Config
-            self.Tf_embedded = 0.5
-            self.N_horizon_embedded = 9
+            self.Tf_embedded = 0.25
+            self.N_horizon_embedded = 4
             self.mpc_hz_embedded = 100
 
             # </manned multirotor aircraft>
@@ -189,8 +189,8 @@ class CopterConfig:
             self.max_rotation_rate_rps = np.deg2rad(100.0)  # max. rotation rate in rad/s
 
             # Embedded Config
-            self.Tf_embedded = 0.5
-            self.N_horizon_embedded = 9
+            self.Tf_embedded = 0.25
+            self.N_horizon_embedded = 4
             self.mpc_hz_embedded = 100
             # </quadcopter>
         else:
