@@ -136,6 +136,12 @@ class CopterConfig:
                 8.0  # wind resistance coefficient = area (m**2) * cw * rho (kg/m**3)
             )
             self.max_rotation_rate_rps = np.deg2rad(25.0)  # max. rotation rate in rad/s
+
+            # Embedded Config
+            self.Tf_embedded = 0.5
+            self.N_horizon_embedded = 9
+            self.mpc_hz_embedded = 100
+
             # </manned multirotor aircraft>
         elif vehicle == 4:
             # <quadcopter>
@@ -181,8 +187,12 @@ class CopterConfig:
                 0.04 * 0.5 * self.rho
             )  # wind resistance coefficient = area (m**2) * cw * rho (kg/m**3)
             self.max_rotation_rate_rps = np.deg2rad(100.0)  # max. rotation rate in rad/s
-            # </quadcopter>
 
+            # Embedded Config
+            self.Tf_embedded = 0.5
+            self.N_horizon_embedded = 9
+            self.mpc_hz_embedded = 100
+            # </quadcopter>
         else:
             assert False, "Unknown vehicle type %i" % (vehicle)
 

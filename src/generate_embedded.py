@@ -136,7 +136,7 @@ DEFAULT_VEHICLE = 18
 
 
 # ---------------------------------------------------------------------------
-# OCP builder  (mirrors nmpc_thread_func from main.py exactly)
+# OCP builder  (mirrors nmpc_thread_func from main.py)
 # ---------------------------------------------------------------------------
 
 def build_ocp(vehicle_config):
@@ -144,11 +144,11 @@ def build_ocp(vehicle_config):
     model = export_copterpos_ode_model(vehicle_config)
     ocp.model = model
 
-    Tf        = 1.0
+    Tf        = vehicle_config.Tf_embedded
     nx        = model.x.size()[0]
     nu        = model.u.size()[0]
     ny        = nx + nu
-    N_horizon = int(20 * Tf)
+    N_horizon = vehicle_config.N_horizon_embedded
 
     ocp.solver_options.N_horizon = N_horizon
 
@@ -160,12 +160,12 @@ def build_ocp(vehicle_config):
     ocp.cost.W           = scipy.linalg.block_diag(Q_mat, R_mat)
     ocp.cost.W_e         = Q_mat
 
-    ocp.cost.Vx            = np.zeros((ny, nx))
+    ocp.cost.Vx           = np.zeros((ny, nx))
     ocp.cost.Vx[:nx, :nx] = np.eye(nx)
-    Vu                     = np.zeros((ny, nu))
+    Vu                    = np.zeros((ny, nu))
     Vu[nx:nx + nu, 0:nu]  = np.eye(nu)
-    ocp.cost.Vu            = Vu
-    ocp.cost.Vx_e          = np.eye(nx)
+    ocp.cost.Vu           = Vu
+    ocp.cost.Vx_e         = np.eye(nx)
 
     yref = np.zeros((ny,))
     yref[vehicle_config.state_cfg["q_index"]]        = 1.0
@@ -202,12 +202,14 @@ def build_ocp(vehicle_config):
     ocp.solver_options.qp_solver        = "PARTIAL_CONDENSING_HPIPM"
     ocp.solver_options.hessian_approx   = "GAUSS_NEWTON"
     ocp.solver_options.integrator_type  = "ERK"
+    ocp.solver_options.num_stages       = 2
+    ocp.solver_options.num_steps        = 1
     ocp.solver_options.nlp_solver_type  = "SQP_RTI"
     ocp.solver_options.qp_solver_cond_N = N_horizon
     ocp.solver_options.tf               = Tf
 
 
-    return ocp, model, nx, nu, ny, N_horizon
+    return ocp, model, nx, nu, ny, N_horizon, Tf
 
 
 # ---------------------------------------------------------------------------
@@ -1127,10 +1129,9 @@ def generate(vehicle_id: int, target_id: str, outdir: str):
           vehicle_config.mass_kg))
 
     # --- Build & generate OCP --------------------------------------------
-    ocp, model, nx, nu, ny, N_horizon = build_ocp(vehicle_config)
+    ocp, model, nx, nu, ny, N_horizon, Tf = build_ocp(vehicle_config)
     mname  = model.name
-    Tf     = 3.0
-    mpc_hz = 100
+    mpc_hz = vehicle_config.mpc_hz_embedded
     cfg    = vehicle_config.state_cfg
 
     os.makedirs(outdir, exist_ok=True)
