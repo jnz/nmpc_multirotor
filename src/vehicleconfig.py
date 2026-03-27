@@ -6,6 +6,30 @@ Vehicle Definition
 
 import numpy as np
 import matplotlib.pyplot as plt
+from dataclasses import dataclass
+from typing import Optional
+
+# This class describes the default configuration of an optimal control problem
+# (horizon, time step, QP solver settings, etc.).
+@dataclass
+class OcpConfig:
+    # Horizont
+    N_horizon      : int            = 10
+    Tf             : float          = 0.5
+    shooting_nodes : Optional[object] = None  # np.array oder None
+    num_steps      : object         = 1       # int oder np.array
+    num_stages     : int            = 4
+
+    # QP-Solver
+    qp_solver      : str            = "PARTIAL_CONDENSING_HPIPM"
+    qp_solver_cond_N : Optional[int] = None   # None = N_horizon (no condensing), int = condensing horizon for partial condensing
+    qp_warm_start  : int            = 1       # 0 = no warm start, 1 = use previous solution as warm start
+    qp_iter_max    : int            = 50      # max. number of iterations for QP solver
+
+    # Soft Rate Constraints
+    soft_rate_constraints   : bool  = False   # if True, adds soft constraints on the rate of change of the control input (delta u) to the optimal control problem
+    soft_rate_constraint_L2 : float = 1e3
+    soft_rate_constraint_L1 : float = 0.0
 
 # This class describes the attributes of a vehicle (mass, moment of inertia,
 # actuator positions, .stl file path for the renderer, etc.).
@@ -137,11 +161,27 @@ class CopterConfig:
             self.max_rotation_rate_rps = np.deg2rad(25.0)  # max. rotation rate in rad/s
 
             # Embedded Config
-            self.Tf_embedded = 0.25
-            self.N_horizon_embedded = 4
-            self.mpc_hz_embedded = 100
-
+            self.ocp_sim = OcpConfig(
+                N_horizon  = 60,
+                Tf         = 3.0,
+                num_stages = 4,
+                qp_solver  = "PARTIAL_CONDENSING_HPIPM",
+                soft_rate_constraints = True,
+            )
+            self.ocp_embedded = OcpConfig(
+                shooting_nodes   = np.array([0.0, 0.02, 0.05, 0.12, 0.30, 0.5]),
+                num_steps        = np.array([     1,    2,    4,    8,    10 ]),
+                num_stages       = 4,
+                qp_solver        = "PARTIAL_CONDENSING_HPIPM",
+                qp_solver_cond_N = 2,
+                qp_warm_start    = 1,
+                qp_iter_max      = 10,
+                soft_rate_constraints = False,
+            )
             # </manned multirotor aircraft>
+        ###################################################################
+        # Quadcopter
+        ###################################################################
         elif vehicle == 4:
             # <quadcopter>
             self.vehicle_name = "Quadcopter"
@@ -187,10 +227,24 @@ class CopterConfig:
             )  # wind resistance coefficient = area (m**2) * cw * rho (kg/m**3)
             self.max_rotation_rate_rps = np.deg2rad(100.0)  # max. rotation rate in rad/s
 
-            # Embedded Config
-            self.mpc_hz_embedded = 100.0
-            self.N_horizon_embedded = 6
-            self.Tf_embedded = self.N_horizon_embedded * (1 / self.mpc_hz_embedded)
+            # OCP Config
+            # ----------
+            self.ocp_sim = OcpConfig(
+                N_horizon  = 60,
+                Tf         = 3.0,
+                num_stages = 4,
+                qp_solver  = "PARTIAL_CONDENSING_HPIPM",
+                soft_rate_constraints = True,
+            )
+            self.ocp_embedded = OcpConfig(
+                shooting_nodes = np.array([0.0, 0.01, 0.02, 0.05, 0.15, 0.5]),
+                num_steps      = np.array([     1,    1,    2,    4,    10]),
+                num_stages     = 4,
+                qp_solver      = "FULL_CONDENSING_HPIPM",
+                qp_solver_cond_N = 0,
+                qp_warm_start    = 1,
+                qp_iter_max    = 10,
+            )
             # </quadcopter>
         else:
             assert False, "Unknown vehicle type %i" % (vehicle)

@@ -21,6 +21,7 @@ from visualization3d import RenderStlPygame # 3D visualization
 from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import SX, vertcat, cos, sin, sqrt, sumsqr
 from mpc_copter.copter_model_position import export_copterpos_ode_model
+from mpc_copter.build_ocp import build_ocp
 
 # nmpc_multirotor (main.py)
 # -------------------------
@@ -101,126 +102,9 @@ def nmpc_thread_func(vehicle_config, initial_state):
     # Keep track of e.g. the position hold setpoint:
     vehicle_control_state = VehicleControlState()
 
-    ocp = AcadosOcp()  # create ocp object to formulate the OCP
-
-    model = export_copterpos_ode_model(vehicle_config)
-    ocp.model = model
-
-    Tf = 3.0  # Time horizon in seconds
-    nx = model.x.size()[0]  # state length
-    nu = model.u.size()[0]  # control input u vector length
-    ny = nx + nu
-    ny_e = nx
-    N_horizon = int(20 * Tf)  # Epochs for MPC prediction horizon
-    ocp.solver_options.N_horizon = N_horizon
-
-    # set cost module
-    ocp.cost.cost_type = "LINEAR_LS"
-    ocp.cost.cost_type_e = "LINEAR_LS"
-
-    Q_mat = np.diag(model.weight_diag)  # weights on state vector for costs
-    R_mat = np.diag(
-        np.ones(nu,) * model.cost_u_weight
-    )  # weight on control input u
-    # R_mat[0,0] = 1e1 # example weight adjustment: be easy on motor #0
-
-    ocp.cost.W = scipy.linalg.block_diag(Q_mat, R_mat)
-    ocp.cost.W_e = Q_mat
-    np.set_printoptions(precision=3, suppress=True, linewidth=400)
-    print("Weights: ", end="")
-    print(np.diag(Q_mat))
-    print("Weights on control input:", end="")
-    print(np.diag(R_mat))
-
-    ocp.cost.Vx = np.zeros((ny, nx))
-    ocp.cost.Vx[:nx, :nx] = np.eye(nx)
-
-    Vu = np.zeros((ny, nu))
-    Vu[nx : nx + nu, 0:nu] = np.eye(nu)
-    ocp.cost.Vu = Vu
-
-    ocp.cost.Vx_e = np.eye(nx)
-
-    x0 = initial_state
-
-    setpoint_yref = np.zeros((ny,))
-    # Target unit quaternion (identity orientation): [1, 0, 0, 0]
-    setpoint_yref[vehicle_config.state_cfg["q_index"]] = (
-        1.0  # set q0 (real) unit quaternion part to 1.0
-    )
-    setpoint_yref[vehicle_config.state_cfg["altitude_index"]] = -0.7
-    ocp.cost.yref = setpoint_yref  # np.zeros((ny, ))    # setpoint trajectory
-    ocp.cost.yref_e = setpoint_yref[0:nx]  # np.zeros((ny_e, ))  # setpoint end
-
-    print("Initial state setpoint: ", end="")
-    print(setpoint_yref)
-
-    ocp.constraints.constr_type = (
-        "BGH"  # Comprises simple bounds, polytopic constraints, general non-linear constraints.
-    )
-
-    # control input constraints
-    ocp.constraints.lbu = (
-        np.ones((vehicle_config.motorcount,)) * vehicle_config.umin**2
-    )  # the MPC works with u squared
-    ocp.constraints.ubu = (
-        np.ones((vehicle_config.motorcount,)) * vehicle_config.umax**2
-    )
-    ocp.constraints.x0 = x0
-    ocp.constraints.idxbu = np.array(range(nu))
-
-    enable_soft_constraints = True
-    if enable_soft_constraints:
-        # <Soft Constraints>
-        # 1. Define which state indices to constrain
-        constrained_state_indices = list(range(
-            vehicle_config.state_cfg["omega_index"],
-            vehicle_config.state_cfg["omega_index_end"]
-        ))
-        max_rotation_rate_rps = vehicle_config.max_rotation_rate_rps
-        print("Max. rotation rate soft constraint: %.1f deg/s" % (np.rad2deg(max_rotation_rate_rps)))
-        lower_bound_x = np.array([-max_rotation_rate_rps] * len(constrained_state_indices))
-        upper_bound_x = np.array([ max_rotation_rate_rps] * len(constrained_state_indices))
-        ns = len(constrained_state_indices)  # number of softened bounds
-        L2_penalty = 1e3  # quadratic penalty (Z terms)
-        L1_penalty = 0.0  # linear penalty (z terms, often zero)
-
-        # Path constraints
-        ocp.constraints.idxbx = np.array(constrained_state_indices)
-        ocp.constraints.lbx = np.array(lower_bound_x)
-        ocp.constraints.ubx = np.array(upper_bound_x)
-        # Make bounds soft
-        ocp.constraints.idxsbx = np.arange(ns)
-        ocp.constraints.lsbx = np.zeros((ns,))
-        ocp.constraints.usbx = np.zeros((ns,))
-        # costs
-        ocp.cost.Zl = L2_penalty * np.ones((ns,))
-        ocp.cost.Zu = L2_penalty * np.ones((ns,))
-        ocp.cost.zl = L1_penalty * np.ones((ns,))
-        ocp.cost.zu = L1_penalty * np.ones((ns,))
-        # Terminal constraints
-        # ocp.constraints.idxbx_e = np.array(constrained_state_indices)
-        # ocp.constraints.lbx_e = lower_bound_x
-        # ocp.constraints.ubx_e = upper_bound_x
-        # # Make bounds soft
-        # ocp.constraints.idxsbx_e = np.arange(len(constrained_state_indices))
-        # ocp.constraints.lsbx_e = np.zeros((ns,))
-        # ocp.constraints.usbx_e = np.zeros((ns,))
-        # # Add costs
-        # ocp.cost.Zl_e = L2_penalty * np.ones((ns,))
-        # ocp.cost.Zu_e = L2_penalty * np.ones((ns,))
-        # ocp.cost.zl_e = L1_penalty * np.ones((ns,))
-        # ocp.cost.zu_e = L1_penalty * np.ones((ns,))
-        #</Soft Constraints>
-
-    # Solver options
-    ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
-    ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-    ocp.solver_options.integrator_type = "ERK"  # IRK, GNSF, ERK
-    ocp.solver_options.nlp_solver_type = "SQP_RTI"  # SQP or SQP_RTI
-
-    ocp.solver_options.qp_solver_cond_N = N_horizon
-    ocp.solver_options.tf = Tf
+    # Build the OCP solver
+    ocp_cfg = vehicle_config.ocp_sim # alternative: vehicle_config.ocp_embedded
+    ocp, model, nx, nu, ny, N_horizon, Tf = build_ocp(vehicle_config, ocp_cfg)
 
     solver_json = "acados_ocp_" + model.name + ".json"
     acados_ocp_solver = AcadosOcpSolver(ocp, json_file=solver_json)

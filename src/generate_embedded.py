@@ -55,6 +55,7 @@ from acados_template import AcadosOcp, AcadosOcpSolver
 try:
     from mpc_copter.copter_model_position import export_copterpos_ode_model
     from vehicleconfig import CopterConfig
+    from mpc_copter.build_ocp import build_ocp as _build_ocp
 except ImportError as e:
     print("ERROR: Could not import project modules: %s" % e)
     print("Make sure the venv is active:  source env.sh")
@@ -136,110 +137,21 @@ DEFAULT_VEHICLE = 18
 
 
 # ---------------------------------------------------------------------------
-# OCP builder  (mirrors nmpc_thread_func from main.py)
+# OCP builder
 # ---------------------------------------------------------------------------
 
+
 def build_ocp(vehicle_config):
-    ocp   = AcadosOcp()
-    model = export_copterpos_ode_model(vehicle_config)
-    ocp.model = model
+    """
+    Build the AcadosOcp object from the vehicle config.
+    The OCP definition is needed to generate the acados solver C code
+    (c_generated_code/), which is platform-independent. The same OCP definition
+    is also used in main.py for the simulation, ensuring consistency.
 
-    Tf        = vehicle_config.Tf_embedded
-    nx        = model.x.size()[0]
-    nu        = model.u.size()[0]
-    ny        = nx + nu
-    N_horizon = vehicle_config.N_horizon_embedded
-
-    ocp.solver_options.N_horizon = N_horizon
-
-    Q_mat = np.diag(model.weight_diag)
-    R_mat = np.diag(np.ones(nu) * model.cost_u_weight)
-
-    ocp.cost.cost_type   = "LINEAR_LS"
-    ocp.cost.cost_type_e = "LINEAR_LS"
-    ocp.cost.W           = scipy.linalg.block_diag(Q_mat, R_mat)
-    ocp.cost.W_e         = Q_mat
-
-    ocp.cost.Vx           = np.zeros((ny, nx))
-    ocp.cost.Vx[:nx, :nx] = np.eye(nx)
-    Vu                    = np.zeros((ny, nu))
-    Vu[nx:nx + nu, 0:nu]  = np.eye(nu)
-    ocp.cost.Vu           = Vu
-    ocp.cost.Vx_e         = np.eye(nx)
-
-    yref = np.zeros((ny,))
-    yref[vehicle_config.state_cfg["q_index"]]        = 1.0
-    yref[vehicle_config.state_cfg["altitude_index"]] = -0.7
-    ocp.cost.yref   = yref
-    ocp.cost.yref_e = yref[0:nx]
-
-    ocp.constraints.constr_type = "BGH"
-    ocp.constraints.lbu         = np.ones(vehicle_config.motorcount) * vehicle_config.umin**2
-    ocp.constraints.ubu         = np.ones(vehicle_config.motorcount) * vehicle_config.umax**2
-    ocp.constraints.idxbu       = np.array(range(nu))
-
-    x0 = np.zeros(nx)
-    x0[vehicle_config.state_cfg["q_index"]] = 1.0
-    ocp.constraints.x0 = x0
-
-    # Rate Constraints
-    # ----------------
-    # cfg      = vehicle_config.state_cfg
-    # omega_idx = list(range(cfg["omega_index"], cfg["omega_index_end"]))
-    # max_rr   = vehicle_config.max_rotation_rate_rps
-    # ns       = len(omega_idx)
-    # L2       = 1e3
-
-    # ocp.constraints.idxbx  = np.array(omega_idx)
-    # ocp.constraints.lbx    = np.array([-max_rr] * ns)
-    # ocp.constraints.ubx    = np.array([ max_rr] * ns)
-    # ocp.constraints.idxsbx = np.arange(ns)
-    # ocp.constraints.lsbx   = np.zeros(ns)
-    # ocp.constraints.usbx   = np.zeros(ns)
-    # ocp.cost.Zl = L2 * np.ones(ns)
-    # ocp.cost.Zu = L2 * np.ones(ns)
-    # ocp.cost.zl = np.zeros(ns)
-    # ocp.cost.zu = np.zeros(ns)
-
-    # 1. Define Non-Uniform Grid
-    # shooting_nodes = np.array([0.0, 0.01, 0.02, 0.04, 0.08, 0.15, 0.3, 0.5])
-    shooting_nodes = np.array([0.0, 0.01, 0.02, 0.05, 0.15, 0.4])
-
-    # Werte dynamisch aus dem Array ableiten
-    N_horizon = len(shooting_nodes) - 1
-    Tf        = shooting_nodes[-1]
-
-    # Dem OCP-Objekt übergeben
-    ocp.solver_options.N_horizon      = N_horizon
-    ocp.solver_options.tf             = Tf
-    ocp.solver_options.shooting_nodes = shooting_nodes
-
-    # 2. Save Integrator
-    # num_steps_arr = np.array([1,    1,    2,    4,    7,   15,   20])
-    num_steps_arr   = np.array([1,    1,    2,    4,    8  ])
-
-    # Supply array instead of number for num_steps
-    ocp.solver_options.num_steps = num_steps_arr
-    ocp.solver_options.num_stages = 4 # (Euler, RK2, RK4)
-
-    # 3. Adjust QP-Solver to N
-
-    # ocp.solver_options.qp_solver      = "PARTIAL_CONDENSING_HPIPM"
-    # ocp.solver_options.qp_solver_cond_N = N_horizon
-
-    ocp.solver_options.qp_solver       = "FULL_CONDENSING_HPIPM"
-    ocp.solver_options.qp_solver_cond_N = 0
-
-    # ocp.solver_options.qp_solver        = "FULL_CONDENSING_QPOASES"
-
-    ocp.solver_options.hessian_approx   = "GAUSS_NEWTON"
-    ocp.solver_options.integrator_type  = "ERK"
-    ocp.solver_options.nlp_solver_type  = "SQP_RTI"
-    ocp.solver_options.qp_solver_warm_start = 1
-    ocp.solver_options.qp_solver_iter_max = 10
-
-    return ocp, model, nx, nu, ny, N_horizon, Tf
-
+    Return values:
+     ocp, model, nx, nu, ny, N_horizon, Tf
+    """
+    return _build_ocp(vehicle_config, vehicle_config.ocp_embedded)
 
 # ---------------------------------------------------------------------------
 # Helpers
