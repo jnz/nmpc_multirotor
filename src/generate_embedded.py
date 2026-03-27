@@ -92,9 +92,9 @@ TARGETS = {
         # that BLASFEO GENERIC emits when it appends its own -march internally.
         # All objects must be Thumb-mode — Cortex-M has no ARM mode.
         # -mthumb-interwork ensures consistent ARM/Thumb calling convention.
-        cmake_c_flags  = "-mcpu=cortex-m55 -mthumb -mthumb-interwork -mfloat-abi=hard -mfpu=fpv5-d16 -O3 -ffast-math -w",
+        cmake_c_flags  = "-mcpu=cortex-m55 -mthumb -mthumb-interwork -mfloat-abi=hard -mfpu=fpv5-d16 -O3 -g -ffast-math -w",
         c_flags        = "-mcpu=cortex-m55 -mthumb -mthumb-interwork -mfloat-abi=hard -mfpu=fpv5-d16"
-                         " -O3 -ffast-math -ffunction-sections -fdata-sections",
+                         " -O3 -g -ffast-math -ffunction-sections -fdata-sections",
         c_defs         = "-DBLASFEO_TARGET_GENERIC"
                          " -DHPIPM_TARGET_EMBEDDED -DACADOS_SILENT",
         notes          = "Link with: -Wl,--gc-sections  --specs=nosys.specs",
@@ -182,35 +182,42 @@ def build_ocp(vehicle_config):
     x0[vehicle_config.state_cfg["q_index"]] = 1.0
     ocp.constraints.x0 = x0
 
-    cfg      = vehicle_config.state_cfg
-    omega_idx = list(range(cfg["omega_index"], cfg["omega_index_end"]))
-    max_rr   = vehicle_config.max_rotation_rate_rps
-    ns       = len(omega_idx)
-    L2       = 1e3
+    # Rate Constraints
+    # ----------------
+    # cfg      = vehicle_config.state_cfg
+    # omega_idx = list(range(cfg["omega_index"], cfg["omega_index_end"]))
+    # max_rr   = vehicle_config.max_rotation_rate_rps
+    # ns       = len(omega_idx)
+    # L2       = 1e3
 
-    ocp.constraints.idxbx  = np.array(omega_idx)
-    ocp.constraints.lbx    = np.array([-max_rr] * ns)
-    ocp.constraints.ubx    = np.array([ max_rr] * ns)
-    ocp.constraints.idxsbx = np.arange(ns)
-    ocp.constraints.lsbx   = np.zeros(ns)
-    ocp.constraints.usbx   = np.zeros(ns)
-    ocp.cost.Zl = L2 * np.ones(ns)
-    ocp.cost.Zu = L2 * np.ones(ns)
-    ocp.cost.zl = np.zeros(ns)
-    ocp.cost.zu = np.zeros(ns)
+    # ocp.constraints.idxbx  = np.array(omega_idx)
+    # ocp.constraints.lbx    = np.array([-max_rr] * ns)
+    # ocp.constraints.ubx    = np.array([ max_rr] * ns)
+    # ocp.constraints.idxsbx = np.arange(ns)
+    # ocp.constraints.lsbx   = np.zeros(ns)
+    # ocp.constraints.usbx   = np.zeros(ns)
+    # ocp.cost.Zl = L2 * np.ones(ns)
+    # ocp.cost.Zu = L2 * np.ones(ns)
+    # ocp.cost.zl = np.zeros(ns)
+    # ocp.cost.zu = np.zeros(ns)
 
-    # ocp.solver_options.qp_solver      = "PARTIAL_CONDENSING_HPIPM"
-    #ocp.solver_options.qp_solver       = "FULL_CONDENSING_HPIPM"
-    ocp.solver_options.qp_solver        = "FULL_CONDENSING_QPOASES"
+    ocp.solver_options.qp_solver      = "PARTIAL_CONDENSING_HPIPM"
+    ocp.solver_options.qp_solver_cond_N = 9
+
+    # ocp.solver_options.qp_solver       = "FULL_CONDENSING_HPIPM"
+    # ocp.solver_options.qp_solver_cond_N = 0
+
+    # ocp.solver_options.qp_solver        = "FULL_CONDENSING_QPOASES"
 
     ocp.solver_options.hessian_approx   = "GAUSS_NEWTON"
     ocp.solver_options.integrator_type  = "ERK"
-    ocp.solver_options.num_stages       = 2
+    ocp.solver_options.num_stages       = 1
     ocp.solver_options.num_steps        = 1
     ocp.solver_options.nlp_solver_type  = "SQP_RTI"
     ocp.solver_options.qp_solver_cond_N = N_horizon
     ocp.solver_options.tf               = Tf
     ocp.solver_options.qp_solver_warm_start = 1
+    ocp.solver_options.qp_solver_iter_max = 10
 
 
     return ocp, model, nx, nu, ny, N_horizon, Tf
@@ -596,7 +603,7 @@ AR          := {ar}
 CFLAGS      := {c_flags} {c_defs}
 # libs/include: copied from acados at build time (libs/include/acados/utils/types.h etc.)
 # $(ACADOS_ROOT)/include: direct source-tree fallback, always valid before 'make' is run
-CFLAGS      += -DACADOS_WITH_QPOASES
+# CFLAGS      += -DACADOS_WITH_QPOASES
 CFLAGS      += -I. -Ic_generated_code
 CFLAGS      += -Ilibs/include
 CFLAGS      += -Ilibs/include/blasfeo/include
@@ -656,7 +663,7 @@ $(LIBS_DIR)/libacados.a: $(BUILD_DIR)/Makefile
 \t@find $(BUILD_DIR) -name "libacados.a"  -exec cp {{}} $(LIBS_DIR)/ \;
 \t@find $(BUILD_DIR) -name "libblasfeo.a" -exec cp {{}} $(LIBS_DIR)/ \;
 \t@find $(BUILD_DIR) -name "libhpipm.a"   -exec cp {{}} $(LIBS_DIR)/ \;
-\t@find $(BUILD_DIR) -name "libqpOASES_e.a"   -exec cp {{}} $(LIBS_DIR)/ \;
+# \t@find $(BUILD_DIR) -name "libqpOASES_e.a"   -exec cp {{}} $(LIBS_DIR)/ \;
 \tcp -r $(ACADOS_ROOT)/include $(LIBS_DIR)/
 \t@test -f $(LIBS_DIR)/libacados.a  || (echo "ERROR: libacados.a not found"; exit 1)
 \t@test -f $(LIBS_DIR)/libblasfeo.a || (echo "ERROR: libblasfeo.a not found"; exit 1)
@@ -678,7 +685,7 @@ $(BUILD_DIR)/Makefile: {toolchain_file}
 \t    -DCMAKE_C_FLAGS="$(CMAKE_C_FLAGS_TARGET)" \\
 \t    -DBLASFEO_TARGET={blasfeo_target} \\
 \t    -DHPIPM_TARGET={hpipm_target} \\
-\t    -DACADOS_WITH_QPOASES=ON \\
+\t    -DACADOS_WITH_QPOASES=OFF \\
 \t    -DACADOS_WITH_OPENMP=OFF \\
 \t    -DACADOS_EXAMPLES=OFF \\
 \t    -DBUILD_SHARED_LIBS=OFF \\
@@ -697,8 +704,9 @@ NMPC_TEST_VEHICLE_MOTORCOUNT := {motorcount}
 
 test: $(LIBS_DIR)/libnmpc.a
 ifeq ($(NMPC_TEST_VEHICLE_MOTORCOUNT),18)
-\tgcc -O3 -o $(TEST_BIN) nmpc_test_x86.c $(CFLAGS) \\
-\t    -Llibs -lnmpc -lacados -lqpOASES_e -lhpipm -lblasfeo -lm
+\tgcc -O3 -g -o $(TEST_BIN) nmpc_test_x86.c $(CFLAGS) \\
+# \t    -Llibs -lnmpc -lacados -lqpOASES_e -lhpipm -lblasfeo -lm
+\t    -Llibs -lnmpc -lacados -lhpipm -lblasfeo -lm
 \t@echo "[BUILD] $(TEST_BIN) OK"
 \t./$(TEST_BIN)
 else
@@ -799,7 +807,7 @@ TEST_TEMPLATE = """\
  * Vehicle : {vehicle_name}  /  Target: linux (x86-64)
  *
  * Build (inside the output directory after 'make' has produced the libs):
- *   gcc -O3 -o nmpc_test_x86 nmpc_test_x86.c \\
+ *   gcc -O3 -g -o nmpc_test_x86 nmpc_test_x86.c \\
  *       -I. -Ic_generated_code -Ilibs/include \\
  *       -Ilibs/include/blasfeo/include -Ilibs/include/hpipm/include \\
  *       -Llibs -lnmpc -lacados -lhpipm -lblasfeo -lm
