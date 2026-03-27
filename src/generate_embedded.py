@@ -201,12 +201,12 @@ def build_ocp(vehicle_config):
     # ocp.cost.zl = np.zeros(ns)
     # ocp.cost.zu = np.zeros(ns)
 
-    ocp.solver_options.qp_solver_cond_N = N_horizon
-    ocp.solver_options.qp_solver      = "PARTIAL_CONDENSING_HPIPM"
-    ocp.solver_options.qp_solver_cond_N = 4
+    # ocp.solver_options.qp_solver_cond_N = N_horizon
+    # ocp.solver_options.qp_solver      = "PARTIAL_CONDENSING_HPIPM"
+    # ocp.solver_options.qp_solver_cond_N = 4
 
-    # ocp.solver_options.qp_solver       = "FULL_CONDENSING_HPIPM"
-    # ocp.solver_options.qp_solver_cond_N = 0
+    ocp.solver_options.qp_solver       = "FULL_CONDENSING_HPIPM"
+    ocp.solver_options.qp_solver_cond_N = 0
 
     # ocp.solver_options.qp_solver        = "FULL_CONDENSING_QPOASES"
 
@@ -429,9 +429,9 @@ int nmpc_init(NmpcCopter_t *ctrl, const double *x0)
 
     /* pin stage-0 to initial state */
     ocp_nlp_constraints_model_set(cap->nlp_config, cap->nlp_dims,
-                                  cap->nlp_in, 0, "lbx", (void *)x0);
+                                  cap->nlp_in, cap->nlp_out, 0, "lbx", (void *)x0);
     ocp_nlp_constraints_model_set(cap->nlp_config, cap->nlp_dims,
-                                  cap->nlp_in, 0, "ubx", (void *)x0);
+                                  cap->nlp_in, cap->nlp_out, 0, "ubx", (void *)x0);
 
     /* default yref: level hover at origin */
     ctrl->yref[NMPC_IDX_Q0]   = 1.0;
@@ -456,9 +456,9 @@ int nmpc_step(NmpcCopter_t            *ctrl,
     double x[NMPC_NX];
     nmpc_measurement_to_state(meas, x);
     ocp_nlp_constraints_model_set(cap->nlp_config, cap->nlp_dims,
-                                  cap->nlp_in, 0, "lbx", x);
+                                  cap->nlp_in, cap->nlp_out, 0, "lbx", x);
     ocp_nlp_constraints_model_set(cap->nlp_config, cap->nlp_dims,
-                                  cap->nlp_in, 0, "ubx", x);
+                                  cap->nlp_in, cap->nlp_out, 0, "ubx", x);
 
     /* 2. reference trajectory */
     build_yref(sp, ctrl->yref);
