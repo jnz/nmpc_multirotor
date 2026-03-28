@@ -31,6 +31,11 @@ class OcpConfig:
     soft_rate_constraint_L2 : float = 1e3
     soft_rate_constraint_L1 : float = 0.0
 
+    # Rotation Rate-Penalty (overwrites vehicle_config weights)
+    weight_omega_roll  : Optional[float] = None  # None = vehicle_config default
+    weight_omega_pitch : Optional[float] = None
+    weight_omega_yaw   : Optional[float] = None
+
 # This class describes the attributes of a vehicle (mass, moment of inertia,
 # actuator positions, .stl file path for the renderer, etc.).
 # The vehicle is defined in a NED frame (North, East, Down).
@@ -164,19 +169,19 @@ class CopterConfig:
             self.ocp_sim = OcpConfig(
                 N_horizon  = 60,
                 Tf         = 3.0,
-                num_stages = 4,
+                num_stages = 4, # e.g. 4 for classic Runge-Kutta 4
                 qp_solver  = "PARTIAL_CONDENSING_HPIPM",
                 soft_rate_constraints = True,
             )
             self.ocp_embedded = OcpConfig(
-                shooting_nodes   = np.array([0.0, 0.02, 0.05, 0.12, 0.30, 0.5]),
-                num_steps        = np.array([     1,    2,    4,    8,    10 ]),
-                num_stages       = 4,
+                shooting_nodes   = np.array([0.0, 0.05, 0.15, 0.35, 0.7, 1.3, 2.2, 3.2, 4.0]),
+                num_steps        = np.array([      1,    2,    3,    4,   6,   8,   10,   12 ]),
+                num_stages       = 4, # e.g. 4 for classic Runge-Kutta 4
                 qp_solver        = "PARTIAL_CONDENSING_HPIPM",
                 qp_solver_cond_N = 2,
                 qp_warm_start    = 1,
                 qp_iter_max      = 10,
-                soft_rate_constraints = False,
+                soft_rate_constraints = True,
             )
             # </manned multirotor aircraft>
         ###################################################################
@@ -225,7 +230,7 @@ class CopterConfig:
             self.windresistance = (
                 0.04 * 0.5 * self.rho
             )  # wind resistance coefficient = area (m**2) * cw * rho (kg/m**3)
-            self.max_rotation_rate_rps = np.deg2rad(100.0)  # max. rotation rate in rad/s
+            self.max_rotation_rate_rps = np.deg2rad(50.0)  # max. rotation rate in rad/s
 
             # OCP Config
             # ----------
@@ -235,6 +240,7 @@ class CopterConfig:
                 num_stages = 4,
                 qp_solver  = "PARTIAL_CONDENSING_HPIPM",
                 soft_rate_constraints = True,
+                weight_omega_yaw   = 800.0,
             )
             self.ocp_embedded = OcpConfig(
                 shooting_nodes = np.array([0.0, 0.01, 0.02, 0.05, 0.15, 0.5]),
@@ -243,7 +249,10 @@ class CopterConfig:
                 qp_solver      = "FULL_CONDENSING_HPIPM",
                 qp_solver_cond_N = 0,
                 qp_warm_start    = 1,
-                qp_iter_max    = 10,
+                qp_iter_max      = 15,
+                weight_omega_roll  = 100.0,
+                weight_omega_pitch = 100.0,
+                weight_omega_yaw   = 800.0,
             )
             # </quadcopter>
         else:

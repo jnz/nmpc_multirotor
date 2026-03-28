@@ -45,7 +45,16 @@ def build_ocp(vehicle_config, ocp_cfg):
     ocp.solver_options.tf        = Tf
 
     # --- Costs ---
-    Q_mat = np.diag(model.weight_diag)
+    weight_diag = model.weight_diag.copy()
+    # Override omega weights from ocp_cfg (if specified, otherwise use model defaults)
+    if ocp_cfg.weight_omega_roll is not None:
+        weight_diag[vehicle_config.state_cfg["omega_roll_index"]]  = ocp_cfg.weight_omega_roll
+    if ocp_cfg.weight_omega_pitch is not None:
+        weight_diag[vehicle_config.state_cfg["omega_pitch_index"]] = ocp_cfg.weight_omega_pitch
+    if ocp_cfg.weight_omega_yaw is not None:
+        weight_diag[vehicle_config.state_cfg["omega_yaw_index"]]   = ocp_cfg.weight_omega_yaw
+    Q_mat = np.diag(weight_diag)
+
     R_mat = np.diag(np.ones(nu) * model.cost_u_weight)
     # R_mat[0,0] = 1e1 # example weight adjustment: be easy on motor #0
 

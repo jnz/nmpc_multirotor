@@ -104,6 +104,7 @@ def nmpc_thread_func(vehicle_config, initial_state):
 
     # Build the OCP solver
     ocp_cfg = vehicle_config.ocp_sim # alternative: vehicle_config.ocp_embedded
+    # ocp_cfg = vehicle_config.ocp_embedded
     ocp, model, nx, nu, ny, N_horizon, Tf = build_ocp(vehicle_config, ocp_cfg)
 
     solver_json = "acados_ocp_" + model.name + ".json"
@@ -176,10 +177,14 @@ def nmpc_thread_func(vehicle_config, initial_state):
         tic_timestamp = time.time()
         # solve OCP and get next control input
         u = acados_ocp_solver.solve_for_x0(x0_bar=state)
+
         # If the solver calculates u^2 commands, we need to take the
         # square root of the result to get the actual control input
         if model.ctrlout_u_is_squared:
+            u = np.clip(u, vehicle_config.umin**2, vehicle_config.umax**2)
             u = np.sqrt(u)
+        else:
+            u = np.clip(u, vehicle_config.umin, vehicle_config.umax)
 
         toc_timestamp = time.time()
         mpc_solve_time_s = toc_timestamp - tic_timestamp
