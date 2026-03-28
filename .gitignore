@@ -4,3 +4,4 @@ venv_nmpc
 img/tmp
 *.json
 build/
+src/nmpc_multirotor.egg-info/
