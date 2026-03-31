@@ -1075,7 +1075,7 @@ def generate(vehicle_id: int, target_id: str, outdir: str):
     # --- Build & generate OCP --------------------------------------------
     ocp, model, nx, nu, ny, N_horizon, Tf = build_ocp(vehicle_config)
     mname  = model.name
-    mpc_hz = vehicle_config.mpc_hz_embedded
+    mpc_hz = vehicle_config.ocp_embedded.mpc_hz
     cfg    = vehicle_config.state_cfg
 
     os.makedirs(outdir, exist_ok=True)

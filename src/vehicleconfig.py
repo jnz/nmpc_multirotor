@@ -13,6 +13,7 @@ from typing import Optional
 # (horizon, time step, QP solver settings, etc.).
 @dataclass
 class OcpConfig:
+    mpc_hz         : int            = 100
     # Horizont
     N_horizon      : int            = 10
     Tf             : float          = 0.5
