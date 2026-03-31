@@ -100,6 +100,16 @@ TARGETS = {
                          " -DHPIPM_TARGET_EMBEDDED -DACADOS_SILENT",
         notes          = "Link with: -Wl,--gc-sections  --specs=nosys.specs",
     ),
+    "rpi3": dict(
+        description    = "Raspberry Pi 3 (Cortex-A53, AArch64, Linux)",
+        blasfeo_target = "ARMV8A_ARM_CORTEX_A53",
+        hpipm_target   = "PC",
+        cc             = "aarch64-linux-gnu-gcc",
+        ar             = "aarch64-linux-gnu-ar",
+        c_flags        = "-mcpu=cortex-a53 -O3 -ffast-math",
+        c_defs         = "-DBLASFEO_TARGET_ARMV8A_ARM_CORTEX_A53",
+        notes          = "Runs Linux - malloc/printf available natively.",
+    ),
     "rpi4": dict(
         description    = "Raspberry Pi 4  (Cortex-A72, AArch64, Linux)",
         blasfeo_target = "ARMV8A_ARM_CORTEX_A57",
