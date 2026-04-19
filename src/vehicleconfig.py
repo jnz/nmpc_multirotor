@@ -256,6 +256,77 @@ class CopterConfig:
                 weight_omega_yaw   = 800.0,
             )
             # </quadcopter>
+        ###################################################################
+        # Crazyflie 2.1 Brushless
+        ###################################################################
+        elif vehicle == 21:
+            # <quadcopter>
+            self.vehicle_name = "Crazyflie"
+            self.model_file = "quadcopter.stl"
+            self.mass_kg = 0.040  # total vehicle mass in kg
+            self.model_offset = np.array([0.0, 0.0, 0.0])
+            self.center_of_mass_b = np.array(
+                [0.0, 0.0, 0.0]
+            )  #  # center_of_mass_b + motortable_position = position of motor wrt. CoG. Z component is typically negative
+            self.motortable = np.array(
+                [
+                    [ 0.0035,  0.0035],  # front/right motor (blue)
+                    [ 0.0035, -0.0035],
+                    [-0.0035, -0.0035],
+                    [-0.0035,  0.0035],
+                ]
+            )  # motor positions in vehicle body frame (north / east)
+            self.motordirection = np.array(
+                [1.0, -1.0, 1.0, -1.0]
+            )  # spinning direction of motors, must have same length as motortable
+            self.motorcount = self.motortable.shape[0]  # number of motors
+            self.motor_T = 0.05  # motor time constant (PT1 time delay)
+            self.motor_maxOmega_rad_per_sec = 2900.0  # max. rotation rate of rotor in rad/s
+            self.motorinclination_rad = np.deg2rad(
+                0.0
+            )  # motor inclination to increase torque along yaw-axis
+            self.rotor_area = 0.0023758  # m**2 rotor area of individual rotor (diameter = 55 mm)
+            self.Cl = self.motor_blockage_factor * 0.000012930680  # lift coefficient
+            self.Cd = 0.000000038737  # drag coefficient of rotor (not vehicle)
+            self.J = np.array(
+                [
+                    [0.000033, 0.0, 0.0],
+                    [0.0, 0.000036, 0.0],
+                    [0.0, 0.0, 0.000059],
+                ]
+            ) # moment of inertia
+            self.Jrotor = 0.00000005  # kg*m^2
+            self.max_horizontal_velocity_mps = 15.0  # max horizontal velocity of the vehicle in m/s
+            self.max_vertical_velocity_mps = 5.0  # max vertical velocity of the vehicle in m/s
+            # estimating the exposed area to 0.04 m**2 and the drag coefficient to be 0.5
+            self.windresistance = (
+                0.04 * 0.5 * self.rho
+            )  # wind resistance coefficient = area (m**2) * cw * rho (kg/m**3)
+            self.max_rotation_rate_rps = np.deg2rad(50.0)  # max. rotation rate in rad/s
+
+            # OCP Config
+            # ----------
+            self.ocp_sim = OcpConfig(
+                N_horizon  = 60,
+                Tf         = 3.0,
+                num_stages = 4,
+                qp_solver  = "PARTIAL_CONDENSING_HPIPM",
+                soft_rate_constraints = True,
+                weight_omega_yaw   = 800.0,
+            )
+            self.ocp_embedded = OcpConfig(
+                shooting_nodes = np.array([0.0, 0.01, 0.02, 0.05, 0.15, 0.5]),
+                num_steps      = np.array([     1,    1,    2,    4,    10]),
+                num_stages     = 4,
+                qp_solver      = "FULL_CONDENSING_HPIPM",
+                qp_solver_cond_N = 0,
+                qp_warm_start    = 1,
+                qp_iter_max      = 15,
+                weight_omega_roll  = 100.0,
+                weight_omega_pitch = 100.0,
+                weight_omega_yaw   = 800.0,
+            )
+            # </quadcopter>
         else:
             assert False, "Unknown vehicle type %i" % (vehicle)
 
@@ -299,8 +370,8 @@ class CopterConfig:
             "Active vehicle config: %s with %i motors and %.2f kg MTOM. Thrust/weight ratio: %.1f"
             % (self.vehicle_name, self.motorcount, self.mass_kg, self.thrust_to_weight_ratio)
         )
-        print("Max. commandable thrust per motor: %.1f N" % (max_commandable_thrust))
-        print("Max. commandable torque per motor: %.1f Nm" % (max_commandable_torque))
+        print("Max. commandable thrust per motor: %.4f N" % (max_commandable_thrust))
+        print("Max. commandable torque per motor: %.4f Nm" % (max_commandable_torque))
         print("Max. commandable (umax) RPM: %.1f RPM." % (max_rpm))
         assert (
             self.thrust_to_weight_ratio > 1.0
@@ -416,7 +487,11 @@ def control_matrix(
 
 if __name__ == "__main__":
     config = get_vehicle_config()
+    # gamma = M * u^2
+    print("gamma = M * u^2")
+    print("M = ")
     print(config.M)
+    print("J = ")
     print(config.J)
     xrange = np.arange(config.umin, config.umax, 0.1)
     yrange = np.copy(xrange)
