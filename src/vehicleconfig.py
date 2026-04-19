@@ -270,10 +270,10 @@ class CopterConfig:
             )  #  # center_of_mass_b + motortable_position = position of motor wrt. CoG. Z component is typically negative
             self.motortable = np.array(
                 [
-                    [ 0.0035,  0.0035],  # front/right motor (blue)
-                    [ 0.0035, -0.0035],
-                    [-0.0035, -0.0035],
-                    [-0.0035,  0.0035],
+                    [ 0.035,  0.035],  # front/right motor (blue)
+                    [-0.035,  0.035],
+                    [-0.035, -0.035],
+                    [+0.035, -0.035],
                 ]
             )  # motor positions in vehicle body frame (north / east)
             self.motordirection = np.array(
