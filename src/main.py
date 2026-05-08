@@ -14,77 +14,90 @@ import pygame
 import threading
 import copy
 import traceback
+from abc import ABC, abstractmethod
 from pathlib import Path  # to figure out path of .stl files
+
 from geodetic_toolbox import *
 from multirotorsimulatorenv import MultirotorSimEnv # Physic simulation
 from visualization3d import RenderStlPygame # 3D visualization
+
+# NMPC specific imports
 from acados_template import AcadosOcp, AcadosOcpSolver
 from casadi import SX, vertcat, cos, sin, sqrt, sumsqr
 from mpc_copter.copter_model_position import export_copterpos_ode_model
 from mpc_copter.build_ocp import build_ocp
 
-# nmpc_multirotor (main.py)
-# -------------------------
-#
-# Simulation entry point
-#
-# Block diagram:
-#
-#      ┌────────────────────┐
-#      │                    │
-#      │                    │      Rotation 'R', Position 'pos' to render object
-#      │  Render Thread     │◄─────────────────────────┐
-#      │  Input Thread      │                          │
-#      │  main()            │                          │
-#      │                    │    'render_fps' ┌────────┴───────────┐
-#      │                    ├────────────────►│                    │
-#      └───────┬────────────┘                 │                    │
-#              │                              │   Simulation       │
-#              │ User keyboard input          │   Thread           │
-#              │ 'keymap'                     │   sim_thread_func()│
-#              │                              │                    │
-#              ▼                              │                    │
-#      ┌─────────────────────┐                │                    │
-#      │                     │                └────────┬───────────┘
-#      │                     │                         │       ▲
-#      │  NMPC Thread        │                         │       │
-#      │  nmpc_thread_func() │◄────────────────────────┘       │
-#      │                     │   'state' vector                │
-#      │                     │                                 │
-#      │                     │                                 │
-#      │                     ├─────────────────────────────────┘
-#      └─────────────────────┘       Control output 'u'
-#                                    'mpc_fps', 'nmpc_time_tot', 'nmpc_sqp_iter', 'nmpc_qp_iter'
-#
-#
-# Global messagebox to exchange data between threads as shown above
+#       ┌───────────────────────────────────────────────────────────────┐
+#       │                                                               │
+#       │                    MAIN THREAD (main.py)                      │
+#       │                                                               │
+#       │  • Pygame Event Loop (Tastatur-/Mauseingaben)                 │
+#       │  • 3D Visualisierung (OpenGL)                                 │
+#       │  • Sammelt Input & rendert das Fahrzeug                       │
+#       │                                                               │
+#       └───────┬───────────────────────────────────────▲───────────────┘
+#               │                                       │
+#               │ Tastatureingaben                      │ Rotation ('R'), Position ('pos')
+#               │ ('keymap')                            │ Vorhersage ('predictedX')
+#               ▼                                       │
+#       ╔═══════════════════════════════════════════════════════════════╗
+#       ║                 GLOBAL MESSAGE BOX (g_thread_msgbox)          ║
+#       ║                 [Geschützt durch g_thread_msgbox_lock]        ║
+#       ║                                                               ║
+#       ║  Enthält: state, u, keymap, R, pos, predictedX, fps, stats... ║
+#       ╚══════════╦════════════════════════════════════╦═══════════════╝
+#                  │                                    │
+#                  │ Lese: 'state', 'keymap'            │ Lese: 'u' (Motorkommandos)
+#                  │ Schreibe: 'u', 'predictedX'        │ Schreibe: 'state', 'R', 'pos'
+#                  ▼                                    ▼
+#       ┌────────────────────────────┐        ┌─────────────────────────┐
+#       │                            │        │                         │
+#       │      CONTROLLER THREAD     │        │    SIMULATION THREAD    │
+#       │                            │        │                         │
+#       │  • Läuft z.B. mit 100 Hz   │        │  • Läuft mit >= 240 Hz  │
+#       │  • Ruft in einer Schleife  │        │  • Berechnet Physik     │
+#       │    compute_control() auf   │        │    (MultirotorSimEnv)   │
+#       │                            │        │  • Führt step(u) aus    │
+#       └───────┬────────────────────┘        └─────────────────────────┘
+#               │
+#               │ Nutzt Polymorphismus
+#               ▼
+#       ┌────────────────────────────┐
+#       │       BaseController       │◄── Abstrakte Basisklasse
+#       │                            │    (Verwaltet State Machine & FSM)
+#       ├──────────────┬─────────────┤
+#       │              │             │
+#       │NMPCController│PIDController│◄── Spezifische Implementierungen
+#       │              │             │    (Berechnen das eigentliche 'u')
+#       └──────────────┴─────────────┘
+
+
+# Global messagebox to exchange data between threads
 g_thread_msgbox = {
-    "R": np.identity(3),  # object attitude (rotation matrix body to navigation frame)
-    "pos": np.array([0.0, 0.0, 0.0]),  # object position in NED 'pos_n'
+    "R": np.identity(3),
+    "pos": np.array([0.0, 0.0, 0.0]),
     "keymap": {
         "longitudinal_cmd": 0.0,
         "lateral_cmd": 0.0,
         "yaw_cmd": 0.0,
         "vertical_cmd": 0.0,
-    },  # keyboard input
-    "mpc_fps": 0,  # debug information: fps of NMPC thread
-    "render_fps": 0,  # debug information: fps of render thread
-    "nmpc_time_tot": np.array([0.0]),  # debug/timing information on NMPC calculation
-    "nmpc_sqp_iter": np.array([0]),  # debug information on NMPC calculation
-    "nmpc_qp_iter": np.array([0]),  # debug information on NMPC calculation
-    "nmpc_time_max": 0.0,  # debug information on NMPC: worst case time for NMPC solver in seconds
-    "nmpc_time_min": 0.0,  # debug information on NMPC: lowest frame time seen in seconds
-    "nmpc_time_avg": 0.0,  # debug information on NMPC: average frame time in seconds
-    "nmpc_time_std": 0.0,  # debug information on NMPC: standard deviation
-    # state                # current state vector from simulation thread
-    # u                    # control input from NMPC to simulation thread
-    # predictedX           # predicted state over the MPC horizon
+    },
+    "ctrl_fps": 0,
+    "render_fps": 0,
+    "ctrl_time_tot": np.array([0.0]),
+    "ctrl_sqp_iter": np.array([0]),
+    "ctrl_qp_iter": np.array([0]),
+    "ctrl_time_max": 0.0,
+    "ctrl_time_min": 0.0,
+    "ctrl_time_avg": 0.0,
+    "ctrl_time_std": 0.0,
 }
-g_thread_msgbox_lock = threading.Lock()  # only access g_thread_msgbox with this lock
-g_sim_running = True  # Run application as long as this is set to True
+g_thread_msgbox_lock = threading.Lock()
+g_sim_running = True
 
-# VehicleControlState is a helper class to store the vehicle control state and
-# the desired position. Managed inside the NMPC thread.
+# ---------------------------------------------------------
+# FSM & State Management
+# ---------------------------------------------------------
 class VehicleControlState:
     def __init__(self):
         self.mode = "HOLD"        # MOVE, BRAKE, HOLD
@@ -93,141 +106,294 @@ class VehicleControlState:
         self.yaw_ref = None       # integrated yaw
         self.yaw_rate_rps = 0.0
 
-# This thread's job is to consume the state vector and emit a control output u
-def nmpc_thread_func(vehicle_config, initial_state):
-    global g_thread_msgbox
-    global g_thread_msgbox_lock
-    global g_sim_running
+def update_vehicle_control_state(ctrl_state, cmd_b, current_pos, current_vel, q, dt_sec):
+    horizontal_vel_mag = np.linalg.norm(current_vel[0:2])
+    slow = horizontal_vel_mag < 0.5
+    horizontal_cmd = not np.allclose(cmd_b[0:2], 0.0)
+    vertical_cmd = not np.isclose(cmd_b[2], 0.0)
+    yaw = quat_to_rpy(q)[2]
 
-    # Keep track of e.g. the position hold setpoint:
-    vehicle_control_state = VehicleControlState()
+    if ctrl_state.yaw_ref is None:
+        ctrl_state.yaw_ref = yaw
+    if ctrl_state.desired_pos is None:
+        ctrl_state.desired_pos = current_pos.copy()
 
-    # Build the OCP solver
-    ocp_cfg = vehicle_config.ocp_sim # alternative: vehicle_config.ocp_embedded
-    # ocp_cfg = vehicle_config.ocp_embedded
-    ocp, model, nx, nu, ny, N_horizon, Tf = build_ocp(vehicle_config, ocp_cfg)
+    if vertical_cmd:
+        ctrl_state.desired_pos[2] = current_pos[2]
 
-    solver_json = "acados_ocp_" + model.name + ".json"
-    acados_ocp_solver = AcadosOcpSolver(ocp, json_file=solver_json)
-    # create an integrator with the same settings as used in the OCP solver.
-    # acados_integrator = AcadosSimSolver(ocp, json_file = solver_json)
+    if ctrl_state.mode == "MOVE":
+        ctrl_state.desired_pos[0] = current_pos[0]
+        ctrl_state.desired_pos[1] = current_pos[1]
+        if not horizontal_cmd:
+            ctrl_state.mode = "BRAKE"
+            ctrl_state.stop_timer = 0.0
+            print("braking...")
 
-    # make sure a MPC update is performed in the first epoch
-    MPC_DT_SEC = 1.0 / 100.0  # run the NMPC every XX ms
-    timestamp_last_mpc_update = time.time() - 2 * MPC_DT_SEC
-    mpc_step_counter = 0  # +1 for every mpc step, reset every 1 sec
-    timestamp_last_mpc_fps_update = time.time()
+    elif ctrl_state.mode == "BRAKE":
+        ctrl_state.desired_pos[0] = current_pos[0]
+        ctrl_state.desired_pos[1] = current_pos[1]
+        ctrl_state.stop_timer += dt_sec
+        if horizontal_cmd:
+            ctrl_state.mode = "MOVE"
+        elif slow or ctrl_state.stop_timer >= 5.0:
+            ctrl_state.mode = "HOLD"
+            print(f"HOLD vehicle to position: {ctrl_state.desired_pos[0]:.2f} {ctrl_state.desired_pos[1]:.2f} {ctrl_state.desired_pos[2]:.2f}. Stop Timer: {ctrl_state.stop_timer:.1f} s. Hor. velocity: {horizontal_vel_mag:.2f} m/s.")
 
-    # debug timing
-    nmpc_time_max = 0.0
-    nmpc_time_min = 999999.0
-    nmpc_time_avg = 0.0
-    nmpc_time_std = 0.0
-    nmpc_time_var = 0.0  # variance to calculate the std.-dev.
-    nmpc_time_avg_sample_count = 0
+    elif ctrl_state.mode == "HOLD":
+        if horizontal_cmd:
+            ctrl_state.mode = "MOVE"
 
-    predictedX = np.ndarray((N_horizon, nx))
+# ---------------------------------------------------------
+# Controller Architecture
+# ---------------------------------------------------------
+class BaseController(ABC):
+    """
+    Abstract base class for all vehicle controllers.
+    """
+    def __init__(self, vehicle_config):
+        self.vehicle_config = vehicle_config
+        self.ctrl_state = VehicleControlState()
+        self.stats = {
+            "time_tot": np.array([0.0]),
+            "sqp_iter": np.array([0]),
+            "qp_iter": np.array([0])
+        }
+
+    @abstractmethod
+    def compute_control(self, state, keymap, dt_sec):
+        """
+        Calculates the control output based on current state and user input.
+        Returns:
+            u (np.array): Control vector for the simulation
+            predictedX (np.ndarray or None): Predicted trajectory for visualization
+        """
+        pass
+
+    def get_stats(self):
+        return self.stats
+
+class NMPCController(BaseController):
+    """
+    Nonlinear Model Predictive Controller using Acados.
+    """
+    def __init__(self, vehicle_config):
+        super().__init__(vehicle_config)
+        ocp_cfg = vehicle_config.ocp_sim
+        self.ocp, self.model, self.nx, self.nu, self.ny, self.N_horizon, self.Tf = build_ocp(vehicle_config, ocp_cfg)
+        solver_json = "acados_ocp_" + self.model.name + ".json"
+        self.acados_ocp_solver = AcadosOcpSolver(self.ocp, json_file=solver_json)
+        self.predictedX = np.ndarray((self.N_horizon, self.nx))
+
+    def compute_control(self, state, keymap, dt_sec):
+        self._update_references(state, keymap, dt_sec)
+
+        # Solve OCP
+        u = self.acados_ocp_solver.solve_for_x0(x0_bar=state)
+
+        if self.model.ctrlout_u_is_squared:
+            u = np.clip(u, self.vehicle_config.umin**2, self.vehicle_config.umax**2)
+            u = np.sqrt(u)
+        else:
+            u = np.clip(u, self.vehicle_config.umin, self.vehicle_config.umax)
+
+        for i in range(self.N_horizon):
+            self.predictedX[i, :] = self.acados_ocp_solver.get(i, "x")
+
+        # Update stats
+        self.stats["time_tot"] = self.acados_ocp_solver.get_stats("time_tot")
+        self.stats["sqp_iter"] = self.acados_ocp_solver.get_stats("sqp_iter")
+        self.stats["qp_iter"] = self.acados_ocp_solver.get_stats("qp_iter")
+
+        return u, self.predictedX
+
+    def _update_references(self, state, keymap, dt_sec):
+        cfg = self.vehicle_config.state_cfg
+        pos = state[cfg["pos3d_index"]:cfg["pos3d_index_end"]]
+        vel = state[cfg["vel3d_index"]:cfg["vel3d_index_end"]]
+        q   = state[cfg["q_index"]:cfg["q_index_end"]]
+        yaw = quat_to_rpy(q)[2]
+
+        cmd_b = np.array([
+            keymap.get("longitudinal_cmd", 0.0),
+            keymap.get("lateral_cmd", 0.0),
+            keymap.get("vertical_cmd", 0.0),
+        ])
+        yaw_cmd = keymap.get("yaw_cmd", 0.0)
+
+        update_vehicle_control_state(self.ctrl_state, cmd_b, pos, vel, q, dt_sec)
+
+        if not np.isclose(yaw_cmd, 0.0):
+            self.ctrl_state.yaw_rate_rps = yaw_cmd * self.vehicle_config.max_rotation_rate_rps
+            self.ctrl_state.yaw_ref += self.ctrl_state.yaw_rate_rps * dt_sec
+            self.ctrl_state.yaw_ref = angle_diff(self.ctrl_state.yaw_ref, 0.0)
+        else:
+            if not np.isclose(self.ctrl_state.yaw_rate_rps, 0.0):
+                self.ctrl_state.yaw_ref = yaw
+                self.ctrl_state.yaw_rate_rps = 0.0
+
+        if np.allclose(cmd_b, 0.0):
+            vel_n_ref = np.zeros(3)
+        else:
+            v_b = np.array([
+                cmd_b[0] * self.vehicle_config.max_horizontal_velocity_mps,
+                cmd_b[1] * self.vehicle_config.max_horizontal_velocity_mps,
+                0.0,
+            ])
+            R_yaw = quat_to_matrix(quat_from_rpy(0.0, 0.0, yaw))
+            vel_n_ref = R_yaw @ v_b
+            vel_n_ref[2] = cmd_b[2] * self.vehicle_config.max_vertical_velocity_mps
+
+        m = self.vehicle_config.mass_kg
+        g = self.vehicle_config.gravity_n[2]
+        v_norm = np.hypot(vel_n_ref[0], vel_n_ref[1])
+        c_D = self.vehicle_config.windresistance
+        F_x = c_D * vel_n_ref[0] * v_norm
+        F_y = c_D * vel_n_ref[1] * v_norm
+        roll_ref = np.arctan(F_y / (m * g))
+        pitch_ref = -np.arctan(F_x / (m * g))
+        q_ref = quat_from_rpy(roll_ref, pitch_ref, self.ctrl_state.yaw_ref)
+        omega_ref = np.array([0.0, 0.0, self.ctrl_state.yaw_rate_rps])
+
+        pos_ref = self.ctrl_state.desired_pos
+        yref = np.copy(self.ocp.cost.yref)
+        yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_ref
+        yref[cfg["vel3d_index"]:cfg["vel3d_index_end"]] = vel_n_ref
+        yref[cfg["q_index"]:cfg["q_index_end"]] = q_ref
+        yref[cfg["omega_index"]:cfg["omega_index_end"]] = omega_ref
+        self.ocp.cost.yref = np.copy(yref)
+
+        N = self.ocp.solver_options.N_horizon
+        pos_pred = np.zeros((N + 1, 3))
+        pos_pred[0] = pos_ref
+        for j in range(1, N + 1):
+            pos_pred[j] = pos_pred[j - 1] + vel_n_ref * dt_sec
+
+        for j in range(N):
+            yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[j]
+            self.acados_ocp_solver.set(j, "yref", np.copy(yref))
+
+        yref_e = np.copy(yref[:state.size])
+        yref_e[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[N]
+        self.acados_ocp_solver.set(N, "yref", yref_e)
+        self.ocp.cost.yref_e = yref_e
+
+class PIDController(BaseController):
+    """
+    Cascaded PID + Altitude PID Controller scaffold.
+    """
+    def __init__(self, vehicle_config):
+        super().__init__(vehicle_config)
+        # TODO: Init PID gains here
+        # self.kp_pos = np.array([...])
+        # self.kd_pos = np.array([...])
+        # ...
+
+    def compute_control(self, state, keymap, dt_sec):
+        cfg = self.vehicle_config.state_cfg
+        pos = state[cfg["pos3d_index"]:cfg["pos3d_index_end"]]
+        vel = state[cfg["vel3d_index"]:cfg["vel3d_index_end"]]
+        q   = state[cfg["q_index"]:cfg["q_index_end"]]
+
+        cmd_b = np.array([
+            keymap.get("longitudinal_cmd", 0.0),
+            keymap.get("lateral_cmd", 0.0),
+            keymap.get("vertical_cmd", 0.0),
+        ])
+
+        # 1. Update setpoints via FSM
+        update_vehicle_control_state(self.ctrl_state, cmd_b, pos, vel, q, dt_sec)
+
+        # TODO: Implement Outer Loop (Position -> Target Velocity)
+        # TODO: Implement Middle Loop (Velocity -> Target Attitude/Thrust)
+        # TODO: Implement Altitude PID (Z Position -> Thrust)
+        # TODO: Implement Inner Loop (Attitude -> Motor Commands 'u')
+
+        # Placeholder for 4 motors, hovering/idle
+        u = np.ones(4) * self.vehicle_config.umin
+
+        predictedX = None # No prediction horizon in basic PID
+
+        return u, predictedX
+
+# ---------------------------------------------------------
+# Threads
+# ---------------------------------------------------------
+def controller_thread_func(controller, vehicle_config):
+    global g_thread_msgbox, g_thread_msgbox_lock, g_sim_running
+
+    CTRL_DT_SEC = 1.0 / 100.0  # run the controller every 10 ms
+    timestamp_last_ctrl_update = time.time() - 2 * CTRL_DT_SEC
+    ctrl_step_counter = 0
+    timestamp_last_fps_update = time.time()
+
+    ctrl_time_max = 0.0
+    ctrl_time_min = 999999.0
+    ctrl_time_avg = 0.0
+    ctrl_time_var = 0.0
+    ctrl_time_avg_sample_count = 0
 
     while g_sim_running:
         timestamp_current = time.time()
-        if timestamp_current - timestamp_last_mpc_update < MPC_DT_SEC:
+        if timestamp_current - timestamp_last_ctrl_update < CTRL_DT_SEC:
             time.sleep(0)
             continue
 
         with g_thread_msgbox_lock:
-            keymap = copy.deepcopy(g_thread_msgbox["keymap"])  # read input from render thread
-            state = copy.deepcopy(g_thread_msgbox["state"])  # fetch current state vector
-            if timestamp_current - timestamp_last_mpc_fps_update >= 1.0:
-                g_thread_msgbox["mpc_fps"] = mpc_step_counter
-                mpc_step_counter = 0
-                timestamp_last_mpc_fps_update = timestamp_current
-                g_thread_msgbox["nmpc_time_tot"] = acados_ocp_solver.get_stats("time_tot")
-                g_thread_msgbox["nmpc_sqp_iter"] = acados_ocp_solver.get_stats("sqp_iter")
-                g_thread_msgbox["nmpc_qp_iter"] = acados_ocp_solver.get_stats("qp_iter")
-                g_thread_msgbox["nmpc_time_max"] = nmpc_time_max
-                g_thread_msgbox["nmpc_time_min"] = nmpc_time_min
-                g_thread_msgbox["nmpc_time_avg"] = nmpc_time_avg
-                g_thread_msgbox["nmpc_time_std"] = nmpc_time_std
+            keymap = copy.deepcopy(g_thread_msgbox["keymap"])
+            state = copy.deepcopy(g_thread_msgbox["state"])
 
-        if mpc_step_counter == 0:
-            omega = np.array(
-                [
-                    state[vehicle_config.state_cfg["omega_roll_index"]],
-                    state[vehicle_config.state_cfg["omega_pitch_index"]],
-                    state[vehicle_config.state_cfg["omega_yaw_index"]],
-                ]
-            )
+            if timestamp_current - timestamp_last_fps_update >= 1.0:
+                g_thread_msgbox["ctrl_fps"] = ctrl_step_counter
+                ctrl_step_counter = 0
+                timestamp_last_fps_update = timestamp_current
 
-            if (
-                np.abs(omega[0]) > 1.2 * vehicle_config.max_rotation_rate_rps
-                or np.abs(omega[1]) > 1.2 * vehicle_config.max_rotation_rate_rps
-                or np.abs(omega[2]) > 1.2 * vehicle_config.max_rotation_rate_rps
-            ):
-                print(
-                    "WARNING rotation rate high: %.1f %.1f %.1f deg/s"
-                    % (np.rad2deg(omega[0]), np.rad2deg(omega[1]), np.rad2deg(omega[2]))
-                )
+                stats = controller.get_stats()
+                g_thread_msgbox["ctrl_time_tot"] = stats.get("time_tot", np.array([0.0]))
+                g_thread_msgbox["ctrl_sqp_iter"] = stats.get("sqp_iter", np.array([0]))
+                g_thread_msgbox["ctrl_qp_iter"] = stats.get("qp_iter", np.array([0]))
 
-        # Process user input from keymap to update the reference trajectory in
-        # the NMPC solver (acados_ocp_solver's yref trajectory and costs in
-        # ocp.cost.yref_e)
-        vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
-                        vehicle_control_state, MPC_DT_SEC)
+                g_thread_msgbox["ctrl_time_max"] = ctrl_time_max
+                g_thread_msgbox["ctrl_time_min"] = ctrl_time_min
+                g_thread_msgbox["ctrl_time_avg"] = ctrl_time_avg
+                g_thread_msgbox["ctrl_time_std"] = np.sqrt(ctrl_time_var)
 
         tic_timestamp = time.time()
-        # solve OCP and get next control input
-        u = acados_ocp_solver.solve_for_x0(x0_bar=state)
 
-        # If the solver calculates u^2 commands, we need to take the
-        # square root of the result to get the actual control input
-        if model.ctrlout_u_is_squared:
-            u = np.clip(u, vehicle_config.umin**2, vehicle_config.umax**2)
-            u = np.sqrt(u)
-        else:
-            u = np.clip(u, vehicle_config.umin, vehicle_config.umax)
+        # Calculate control
+        u, predictedX = controller.compute_control(state, keymap, CTRL_DT_SEC)
 
         toc_timestamp = time.time()
-        mpc_solve_time_s = toc_timestamp - tic_timestamp
-        nmpc_time_avg_sample_count += 1
-        nmpc_time_avg += (mpc_solve_time_s - nmpc_time_avg) / nmpc_time_avg_sample_count
-        nmpc_time_var += (
-            (mpc_solve_time_s - nmpc_time_avg) ** 2 - nmpc_time_var
-        ) / nmpc_time_avg_sample_count
-        nmpc_time_std = np.sqrt(nmpc_time_var)
-        if mpc_solve_time_s < nmpc_time_min:
-            nmpc_time_min = mpc_solve_time_s
-        if mpc_solve_time_s > nmpc_time_max:
-            nmpc_time_max = mpc_solve_time_s
+        ctrl_solve_time_s = toc_timestamp - tic_timestamp
 
-        # get predicted states (x) from solver
-        for i in range(N_horizon):
-            predictedX[i, :] = acados_ocp_solver.get(i, "x")
+        # Timing stats
+        ctrl_time_avg_sample_count += 1
+        ctrl_time_avg += (ctrl_solve_time_s - ctrl_time_avg) / ctrl_time_avg_sample_count
+        ctrl_time_var += ((ctrl_solve_time_s - ctrl_time_avg) ** 2 - ctrl_time_var) / ctrl_time_avg_sample_count
 
-        timestamp_last_mpc_update = timestamp_current
-        mpc_step_counter += 1
+        if ctrl_solve_time_s < ctrl_time_min: ctrl_time_min = ctrl_solve_time_s
+        if ctrl_solve_time_s > ctrl_time_max: ctrl_time_max = ctrl_solve_time_s
+
+        timestamp_last_ctrl_update = timestamp_current
+        ctrl_step_counter += 1
+
         with g_thread_msgbox_lock:
             g_thread_msgbox["u"] = copy.deepcopy(u)
-            g_thread_msgbox["predictedX"] = copy.deepcopy(predictedX)
+            if predictedX is not None:
+                g_thread_msgbox["predictedX"] = copy.deepcopy(predictedX)
 
 
-# This thread's job is it to simulate the world (physic simulation) and in
-# particular to emit the current state vector
 def sim_thread_func(env):
-    global g_thread_msgbox
-    global g_thread_msgbox_lock
-    global g_sim_running
+    global g_thread_msgbox, g_thread_msgbox_lock, g_sim_running
 
     TIMESTAMP_START = time.time()
     timestamp_lastupdate = TIMESTAMP_START
-    MAX_DT_SEC = 0.1  # don't allow larger simulation timesteps than this
-    SIM_DT_SEC = 1.0 / 240.0  # run the simulation every XX ms
-    sim_step_counter = 0  # +1 for every simulation step, reset every 1 sec
-    # emit a FPS stat message every second based on this timestamp:
+    MAX_DT_SEC = 0.1
+    SIM_DT_SEC = 1.0 / 240.0
+    sim_step_counter = 0
     last_fps_update = timestamp_lastupdate
-    mpc_fps = 0
+    ctrl_fps = 0
 
     while g_sim_running:
-
         timestamp_current = time.time()
         dt_sec = timestamp_current - timestamp_lastupdate
         if dt_sec < SIM_DT_SEC:
@@ -239,11 +405,8 @@ def sim_thread_func(env):
                 u = copy.deepcopy(g_thread_msgbox["u"])
             else:
                 continue
-        # wait with the simulation thread until we receive the first u vector
-        # e.g. the MPC thread needs to compile .c files until it is ready
 
         timestamp_lastupdate = timestamp_current
-        # make sure dt_sec is within a reasonable range
         if dt_sec > MAX_DT_SEC:
             print("Warning, high dt_sec: %.1f" % (dt_sec))
             continue
@@ -258,46 +421,26 @@ def sim_thread_func(env):
 
         R_b_to_n, pos_n = env.get_render_info()
         with g_thread_msgbox_lock:
-            # emit current attitude body to n-frame for render thread
             g_thread_msgbox["R"] = copy.deepcopy(R_b_to_n)
-            g_thread_msgbox["pos"] = copy.deepcopy(pos_n)  # emit current pos in NED for render thread
-            g_thread_msgbox["state"] = copy.deepcopy(state)  # emit current state vector for NMPC thread
-            mpc_fps = g_thread_msgbox["mpc_fps"]
+            g_thread_msgbox["pos"] = copy.deepcopy(pos_n)
+            g_thread_msgbox["state"] = copy.deepcopy(state)
+            ctrl_fps = g_thread_msgbox["ctrl_fps"]
             render_fps = g_thread_msgbox["render_fps"]
-            nmpc_time_tot = g_thread_msgbox["nmpc_time_tot"]
-            nmpc_sqp_iter = g_thread_msgbox["nmpc_sqp_iter"]
-            nmpc_qp_iter = g_thread_msgbox["nmpc_qp_iter"]
-            nmpc_time_max = g_thread_msgbox["nmpc_time_max"]
-            nmpc_time_min = g_thread_msgbox["nmpc_time_min"]
-            nmpc_time_avg = g_thread_msgbox["nmpc_time_avg"]
-            nmpc_time_std = g_thread_msgbox["nmpc_time_std"]
 
         if timestamp_current - last_fps_update >= 1.0:
-            print("FPS=%3i SIM=%4i MPC=%3i" % (render_fps, sim_step_counter, mpc_fps), end=" ")
+            print("FPS=%3i SIM=%4i CTRL=%3i" % (render_fps, sim_step_counter, ctrl_fps), end=" ")
             last_fps_update = timestamp_current
-
-            # sum_power_mech_kw = np.sum(env.motor_power_mech_kw)
             sim_step_counter = 0
+
             print(
                 "%.3fs (%6.2f,%6.2f,%6.2f)m (%5.1f,%5.1f,%5.1f)m/s φ=%5.1f° θ=%5.1f° ψ=%6.1f° ω(%6.1f,%5.1f,%6.1f)°/s γ(%9.3fNm,%9.3fNm,%9.3fNm,%8.2fN) u="
                 % (
                     timestamp_current - TIMESTAMP_START,
-                    env.pos_n[0],
-                    env.pos_n[1],
-                    env.pos_n[2],
-                    env.vel_n[0],
-                    env.vel_n[1],
-                    env.vel_n[2],
-                    env.roll_deg,
-                    env.pitch_deg,
-                    env.yaw_deg,
-                    np.rad2deg(env.omega[0]),
-                    np.rad2deg(env.omega[1]),
-                    np.rad2deg(env.omega[2]),
-                    env.gamma[0],
-                    env.gamma[1],
-                    env.gamma[2],
-                    env.gamma[3],
+                    env.pos_n[0], env.pos_n[1], env.pos_n[2],
+                    env.vel_n[0], env.vel_n[1], env.vel_n[2],
+                    env.roll_deg, env.pitch_deg, env.yaw_deg,
+                    np.rad2deg(env.omega[0]), np.rad2deg(env.omega[1]), np.rad2deg(env.omega[2]),
+                    env.gamma[0], env.gamma[1], env.gamma[2], env.gamma[3],
                 ),
                 end=" ",
             )
@@ -305,11 +448,11 @@ def sim_thread_func(env):
                 print("%2.0f" % (elem * 99.0), end=" ")
             print("%")
 
-
+# ---------------------------------------------------------
+# Main Execution
+# ---------------------------------------------------------
 def main():
-    global g_thread_msgbox
-    global g_thread_msgbox_lock
-    global g_sim_running
+    global g_thread_msgbox, g_thread_msgbox_lock, g_sim_running
 
     # Create the simulation environment
     env = MultirotorSimEnv()
@@ -317,13 +460,14 @@ def main():
     u = None
     predictedX = None
 
-    # Get project root by walking up from this file
+    # Get project root
     THIS_DIR = Path(__file__).resolve().parent
     PROJECT_ROOT = THIS_DIR.parent
     STL_DIR = PROJECT_ROOT / "stl"
     IMG_DIR = PROJECT_ROOT / "img"
     stl_file = STL_DIR / env.vehicle_config.model_file
     logo_file = IMG_DIR / "logo.png"
+
     if not stl_file.is_file():
         print("STL file not found: %s" % (stl_file))
         exit(1)
@@ -333,36 +477,24 @@ def main():
     try:
         pygame.init()
         render = RenderStlPygame(stl_file, logo_file)
-        render.init("nmpc_multirotor")
+        render.init("multirotor_sim")
         clock = pygame.time.Clock()
 
         fps_freelook = False
-        # Camera Control
-        # Allow FPS style camera movement, capture mouse to do this
         pygame.mouse.set_visible(not fps_freelook)
         pygame.event.set_grab(fps_freelook)
-        # Camera variables
-        cam_dist = (
-            np.max(env.vehicle_config.motortable) * 5.0
-        )  # try to position camera based on rotor plane size
+
+        cam_dist = np.max(env.vehicle_config.motortable) * 5.0
         cam_altitude = 0.7
-        cam_pos_gl = np.array(
-            [-cam_dist, cam_altitude, 0.0]
-        )  # camera position in OpenGL system (not! North/East/Down)
-        cam_yaw = 90.0  # turn do look down OpenGL x-axis (right) / North
+        cam_pos_gl = np.array([-cam_dist, cam_altitude, 0.0])
+        cam_yaw = 90.0
         cam_pitch = 0.0
         MOUSE_SENSITIVITY = 0.1
         MOVE_SPEED = 10.0
 
         render.render(
-            np.eye(3),
-            np.array([0.0, 0.0, -cam_altitude]),
-            cam_pitch,
-            cam_yaw,
-            cam_pos_gl,
-            env.vehicle_config,
-            predictedX,
-            u,
+            np.eye(3), np.array([0.0, 0.0, -cam_altitude]),
+            cam_pitch, cam_yaw, cam_pos_gl, env.vehicle_config, predictedX, u
         )
         renderer_active = True
     except Exception as e:
@@ -371,16 +503,29 @@ def main():
         renderer_active = False
         pygame.quit()
 
-    # Spawn simulation thread
+    # ==========================================================
+    # Controller Selection
+    # ==========================================================
+    ACTIVE_CONTROLLER = "NMPC" # For PID: change to "PID"
+
+    if ACTIVE_CONTROLLER == "NMPC":
+        print("Initializing NMPC Controller...")
+        controller = NMPCController(env.vehicle_config)
+    elif ACTIVE_CONTROLLER == "PID":
+        print("Initializing PID Controller...")
+        controller = PIDController(env.vehicle_config)
+    else:
+        raise ValueError(f"Unknown controller type: {ACTIVE_CONTROLLER}")
+    # ==========================================================
+
     sim_logic_thread = threading.Thread(target=sim_thread_func, kwargs={"env": env})
     sim_logic_thread.start()
 
-    # Spawn NMPC thread
-    nmpc_thread = threading.Thread(
-        target=nmpc_thread_func,
-        kwargs={"vehicle_config": env.vehicle_config, "initial_state": g_thread_msgbox["state"]},
+    ctrl_thread = threading.Thread(
+        target=controller_thread_func,
+        kwargs={"controller": controller, "vehicle_config": env.vehicle_config},
     )
-    nmpc_thread.start()
+    ctrl_thread.start()
 
     with g_thread_msgbox_lock:
         keymap = copy.deepcopy(g_thread_msgbox["keymap"])
@@ -390,12 +535,10 @@ def main():
     last_render_time = time.time()
 
     while g_sim_running:
-
         current_time = time.time()
         dt_sec = current_time - last_render_time
         last_render_time = current_time
 
-        # Get orientation R and position pos to render the object
         with g_thread_msgbox_lock:
             R_b_to_n = copy.deepcopy(g_thread_msgbox["R"])
             pos_n = copy.deepcopy(g_thread_msgbox["pos"])
@@ -428,7 +571,7 @@ def main():
             cam_pitch -= mouse_rel[1] * MOUSE_SENSITIVITY
             cam_pitch = max(-89.0, min(89.0, cam_pitch))
 
-        keys = pygame.key.get_pressed()  # Get the state of all keyboard buttons
+        keys = pygame.key.get_pressed()
         keymap["lateral_cmd"] = 0.0
         keymap["lateral_cmd"] += keys[pygame.K_LEFT] * -1.0
         keymap["lateral_cmd"] += keys[pygame.K_RIGHT] * 1.0
@@ -442,19 +585,15 @@ def main():
         keymap["yaw_cmd"] += keys[pygame.K_h] * -1.0
         keymap["yaw_cmd"] += keys[pygame.K_l] * 1.0
 
-        # Move forward (along the camera's view direction)
         if keys[pygame.K_s]:
             cam_pos_gl[0] -= dt_sec * MOVE_SPEED * np.sin(np.deg2rad(cam_yaw))
             cam_pos_gl[2] += dt_sec * MOVE_SPEED * np.cos(np.deg2rad(cam_yaw))
-        # Move backward
         if keys[pygame.K_w]:
             cam_pos_gl[0] += dt_sec * MOVE_SPEED * np.sin(np.deg2rad(cam_yaw))
             cam_pos_gl[2] -= dt_sec * MOVE_SPEED * np.cos(np.deg2rad(cam_yaw))
-        # Move left
         if keys[pygame.K_a]:
             cam_pos_gl[0] += dt_sec * MOVE_SPEED * np.sin(np.deg2rad(cam_yaw - 90.0))
             cam_pos_gl[2] -= dt_sec * MOVE_SPEED * np.cos(np.deg2rad(cam_yaw - 90.0))
-        # Move right
         if keys[pygame.K_d]:
             cam_pos_gl[0] += dt_sec * MOVE_SPEED * np.sin(np.deg2rad(cam_yaw + 90.0))
             cam_pos_gl[2] -= dt_sec * MOVE_SPEED * np.cos(np.deg2rad(cam_yaw + 90.0))
@@ -473,169 +612,14 @@ def main():
                 fps_freelook = not fps_freelook
                 pygame.mouse.set_visible(not fps_freelook)
                 pygame.event.set_grab(fps_freelook)
-                mouse_rel = pygame.mouse.get_rel()  # consume one get_rel to avoid jump
+                mouse_rel = pygame.mouse.get_rel()
                 if fps_freelook:
                     print("Freelook active, press mousebutton to exit mode")
                 else:
                     print("Freelook disabled")
 
     sim_logic_thread.join()
-    nmpc_thread.join()
-
-def update_vehicle_control_state(ctrl_state, cmd_b, current_pos, current_vel, q, dt_sec):
-    # helper function for vehicle_control function
-    # updating the vehicle control state machine
-
-    horizontal_vel_mag = np.linalg.norm(current_vel[0:2])
-    slow = horizontal_vel_mag < 0.5  # m/s threshold
-    # is a horizontal velocity command requested?
-    horizontal_cmd = not np.allclose(cmd_b[0:2], 0.0)
-    # is a vertical rate command requested?
-    vertical_cmd = not np.isclose(cmd_b[2], 0.0)
-    yaw = quat_to_rpy(q)[2]
-
-    if ctrl_state.yaw_ref is None:
-        ctrl_state.yaw_ref = yaw
-    if ctrl_state.desired_pos is None:
-        ctrl_state.desired_pos = current_pos.copy()
-
-    if vertical_cmd:
-        # if a vertical command is requested, then set the desired altitude to
-        # the current altitude
-        ctrl_state.desired_pos[2] = current_pos[2]
-
-    # if yaw_ref deviates more than 10 degrees from the current yaw
-    # then set the yaw_ref to the current yaw:
-    # if np.abs(angle_diff(yaw, ctrl_state.yaw_ref)) > np.deg2rad(10.0):
-    #     ctrl_state.yaw_ref = yaw
-
-    if ctrl_state.mode == "MOVE":
-        # drag along current horizontal position while moving
-        ctrl_state.desired_pos[0] = current_pos[0]
-        ctrl_state.desired_pos[1] = current_pos[1]
-        # horizontal movement no longer requested?
-        if not horizontal_cmd:
-            ctrl_state.mode = "BRAKE"
-            ctrl_state.stop_timer = 0.0
-            print("braking...")
-
-    elif ctrl_state.mode == "BRAKE":
-        # drag along current horizontal position while braking
-        ctrl_state.desired_pos[0] = current_pos[0]
-        ctrl_state.desired_pos[1] = current_pos[1]
-        ctrl_state.stop_timer += dt_sec
-        if horizontal_cmd:
-            ctrl_state.mode = "MOVE"
-        elif slow or ctrl_state.stop_timer >= 5.0:
-            ctrl_state.mode = "HOLD"
-            print("HOLD vehicle to position: %.2f %.2f %.2f. Stop Timer: %.1f s. Hor. velocity: %.2f m/s." %
-                  (ctrl_state.desired_pos[0], ctrl_state.desired_pos[1], ctrl_state.desired_pos[2],
-                   ctrl_state.stop_timer, horizontal_vel_mag))
-
-    elif ctrl_state.mode == "HOLD":
-        if horizontal_cmd:
-            ctrl_state.mode = "MOVE"
-
-def vehicle_control(acados_ocp_solver, ocp, state, keymap, vehicle_config,
-                    ctrl_state, dt_sec):
-    """
-    Generate consistent NMPC references based on user keymap input and FSM.
-    Sets: position, velocity, attitude (quat), angular rate.
-    :param acados_ocp_solver: acados solver object
-    :param ocp: acados ocp object
-    :param state: current state vector
-    :param keymap: user input keymap
-    :param vehicle_config: vehicle configuration with vehicle parameters
-    :param ctrl_state: vehicle control state class VehicleControlState
-    :param dt_sec: time step in seconds (MPC update rate)
-    """
-    cfg = vehicle_config.state_cfg
-
-    # Extract position, velocity etc. from state vector
-    pos = state[cfg["pos3d_index"]:cfg["pos3d_index_end"]]
-    vel = state[cfg["vel3d_index"]:cfg["vel3d_index_end"]]
-    q   = state[cfg["q_index"]:cfg["q_index_end"]]
-    yaw = quat_to_rpy(q)[2]
-
-    # Body-frame user/pilot input
-    cmd_b = np.array([
-        keymap.get("longitudinal_cmd", 0.0),
-        keymap.get("lateral_cmd", 0.0),
-        keymap.get("vertical_cmd", 0.0),
-    ])
-    yaw_cmd = keymap.get("yaw_cmd", 0.0)
-
-    update_vehicle_control_state(ctrl_state, cmd_b, pos, vel, q, dt_sec)
-
-    # Integrate yaw
-    if not np.isclose(yaw_cmd, 0.0):
-        max_yaw_rate = vehicle_config.max_rotation_rate_rps # rad/s
-        ctrl_state.yaw_rate_rps = yaw_cmd * max_yaw_rate
-        ctrl_state.yaw_ref += ctrl_state.yaw_rate_rps * dt_sec
-        ctrl_state.yaw_ref = angle_diff(ctrl_state.yaw_ref, 0.0)  # wrap to -pi..pi
-    else:
-        if not np.isclose(ctrl_state.yaw_rate_rps, 0.0):
-            ctrl_state.yaw_ref = yaw
-            ctrl_state.yaw_rate_rps = 0.0
-            print("Yaw setpoint: %.1f" % (np.rad2deg(ctrl_state.yaw_ref)))
-
-    # Velocity in nav frame
-    if np.allclose(cmd_b, 0.0):
-        vel_n_ref = np.zeros(3)
-    else:
-        v_b = np.array([
-            cmd_b[0] * vehicle_config.max_horizontal_velocity_mps,
-            cmd_b[1] * vehicle_config.max_horizontal_velocity_mps,
-            0.0,
-        ])
-        R_yaw = quat_to_matrix(quat_from_rpy(0.0, 0.0, yaw))
-        vel_n_ref = R_yaw @ v_b
-        vel_n_ref[2] = cmd_b[2] * vehicle_config.max_vertical_velocity_mps
-
-    # Compute attitude for velocity
-    m = vehicle_config.mass_kg
-    g = vehicle_config.gravity_n[2]
-    v_norm = np.hypot(vel_n_ref[0], vel_n_ref[1])
-    c_D = vehicle_config.windresistance
-    F_x = c_D * vel_n_ref[0] * v_norm
-    F_y = c_D * vel_n_ref[1] * v_norm
-    roll_ref = np.arctan(F_y / (m * g))
-    pitch_ref = -np.arctan(F_x / (m * g))
-    q_ref = quat_from_rpy(roll_ref, pitch_ref, ctrl_state.yaw_ref)
-    omega_ref = np.array([0.0, 0.0, ctrl_state.yaw_rate_rps])
-
-    # Reference position
-    pos_ref = ctrl_state.desired_pos
-
-    # Build yref vector
-    yref = np.copy(ocp.cost.yref)
-    yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_ref
-    yref[cfg["vel3d_index"]:cfg["vel3d_index_end"]] = vel_n_ref
-    yref[cfg["q_index"]:cfg["q_index_end"]] = q_ref
-    yref[cfg["omega_index"]:cfg["omega_index_end"]] = omega_ref
-    ocp.cost.yref = np.copy(yref)
-
-    N = ocp.solver_options.N_horizon # N = prediction horizon epochs
-    pos_pred = np.zeros((N + 1, 3)) # future positions
-    pos_pred[0] = pos_ref
-    for j in range(1, N + 1):
-        pos_pred[j] = pos_pred[j - 1] + vel_n_ref * dt_sec
-
-    # Push to acados
-    for j in range(N):
-        # if j==0 and (not np.allclose(cmd_b, 0.0) or yaw_cmd != 0.0):
-        #      print(yref)
-        #      print("pos_ref=%.2f %.2f %.2f" % (pos_ref[0], pos_ref[1], pos_ref[2]), end=" ")
-        #      print("vel_ref=%.2f %.2f %.2f" % (vel_n_ref[0], vel_n_ref[1], vel_n_ref[2]), end="")
-        #      print("roll_ref=%.2f pitch_ref=%.2f yaw_ref=%.2f" % (np.rad2deg(roll_ref), np.rad2deg(pitch_ref), np.rad2deg(ctrl_state.yaw_ref)), end="")
-        #      print("")
-        yref[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[j]
-        acados_ocp_solver.set(j, "yref", np.copy(yref))
-
-    yref_e = np.copy(yref[:state.size])
-    yref_e[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = pos_pred[N]
-    acados_ocp_solver.set(N, "yref", yref_e)
-    ocp.cost.yref_e = yref_e
+    ctrl_thread.join()
 
 if __name__ == "__main__":
     main()
