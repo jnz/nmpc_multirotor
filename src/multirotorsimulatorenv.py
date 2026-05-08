@@ -23,9 +23,9 @@ from geodetic_toolbox import *
 # class MultirotorSimEnv(gym.Env):
 # </Gym Interface>
 class MultirotorSimEnv:
-    def __init__(self):
+    def __init__(self, vehicle=0):
         # vehicle config describes the vehicle specific properties:
-        self.vehicle_config = get_vehicle_config()
+        self.vehicle_config = get_vehicle_config(vehicle)
 
         self.reset_count = 0  # keep track of calls to reset() function
         self.time_sec = 0.0  # keep track of simulation time

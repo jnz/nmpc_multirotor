@@ -455,7 +455,7 @@ def main():
     global g_thread_msgbox, g_thread_msgbox_lock, g_sim_running
 
     # Create the simulation environment
-    env = MultirotorSimEnv()
+    env = MultirotorSimEnv(vehicle=0)
     g_thread_msgbox["state"] = env.state
     u = None
     predictedX = None

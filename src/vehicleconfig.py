@@ -42,7 +42,10 @@ class OcpConfig:
 # The vehicle is defined in a NED frame (North, East, Down).
 
 class CopterConfig:
-    def __init__(self, vehicle=18):
+    def __init__(self, vehicle=0):
+
+        if vehicle==0:
+            vehicle = 18
 
         # Basic model
 
@@ -260,9 +263,9 @@ class CopterConfig:
         # Crazyflie 2.1 Brushless
         ###################################################################
         elif vehicle == 21:
-            # <quadcopter>
-            self.vehicle_name = "Crazyflie"
-            self.model_file = "quadcopter.stl"
+            # <cf21>
+            self.vehicle_name = "Crazyflie 2.1 BL"
+            self.model_file = "cf21.stl"
             self.mass_kg = 0.040  # total vehicle mass in kg
             self.model_offset = np.array([0.0, 0.0, 0.0])
             self.center_of_mass_b = np.array(
@@ -326,7 +329,7 @@ class CopterConfig:
                 weight_omega_pitch = 100.0,
                 weight_omega_yaw   = 800.0,
             )
-            # </quadcopter>
+            # </cf21>
         else:
             assert False, "Unknown vehicle type %i" % (vehicle)
 
@@ -427,8 +430,8 @@ class CopterConfig:
         ), "gamma_available is mutually exclusive to rotoromega_available"
 
 
-def get_vehicle_config():
-    return CopterConfig()
+def get_vehicle_config(vehicle=0):
+    return CopterConfig(vehicle=vehicle)
 
 
 def control_matrix(
