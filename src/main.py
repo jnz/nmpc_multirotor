@@ -707,8 +707,8 @@ class PIDController(BaseController):
         # The firmware mixer is written for FLU. Our control outputs are
         # in NED, where pitch and yaw have opposite sign vs. FLU. We
         # absorb both flips here so the rest of the cascade stays in NED.
-        pitch_mix = -pitch_out
-        yaw_mix   = -yaw_out
+        pitch_mix =  pitch_out
+        yaw_mix   =  yaw_out
 
         r_half = roll_out * 0.5
         p_half = pitch_mix * 0.5
@@ -864,7 +864,7 @@ def main():
     global g_thread_msgbox, g_thread_msgbox_lock, g_sim_running
 
     # Create the simulation environment
-    env = MultirotorSimEnv(vehicle=0)
+    env = MultirotorSimEnv(vehicle=21)
     g_thread_msgbox["state"] = env.state
     u = None
     predictedX = None
@@ -915,7 +915,7 @@ def main():
     # ==========================================================
     # Controller Selection
     # ==========================================================
-    ACTIVE_CONTROLLER = "NMPC" # For PID: change to "PID"
+    ACTIVE_CONTROLLER = "PID" # For PID: change to "PID"
 
     if ACTIVE_CONTROLLER == "NMPC":
         print("Initializing NMPC Controller...")
