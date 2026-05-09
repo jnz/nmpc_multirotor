@@ -279,7 +279,9 @@ class NMPCController(BaseController):
 
 class PidObject:
     """
-    Helper for the PID controller
+    Mirror of the Crazyflie PidObject (see firmware: pid.c / pid.h).
+    Implements derivative on measurement (no derivative kick) and a
+    yaw-aware wrap correction for both error and delta when isYawAngle.
     """
     __slots__ = (
         "kp", "ki", "kd", "kff",
@@ -295,7 +297,7 @@ class PidObject:
         self.ki = float(ki)
         self.kd = float(kd)
         self.kff = float(kff)
-        self.i_limit = float(i_limit)         # 0 means no limit
+        self.i_limit = float(i_limit)         # 0 means no limit (CF convention)
         self.output_limit = float(output_limit)
         self.desired = 0.0
         self.integ = 0.0
@@ -371,26 +373,27 @@ def _g(cfg, name, default):
 
 class PIDController(BaseController):
     """
-    Cascaded PID controller
+    Crazyflie 2.1 Brushless cascaded PID controller, ported from firmware
+    (controller_pid.c, attitude_pid_controller.c, position_controller_pid.c,
+    pid.c, power_distribution_quadrotor.c).
 
     Cascade (outer -> inner):
-        Position (XYZ)  -> velocity setpoint (NED-frame)
+        Position (XYZ)  -> velocity setpoint
         Velocity (XYZ)  -> roll/pitch attitude setpoint + thrust
         Attitude (RPY)  -> body-rate setpoint
         Body rate       -> raw torque commands (roll, pitch, yaw)
         Power mixer     -> 4 motor commands
 
-    Coordinate frames:
-        - Simulation works in NED (x North, y East, z Down).
-        - Crazyflie firmware works in FLU (x Forward, y Left, z Up).
-          Roll/pitch/yaw conventions otherwise match (roll about x, pitch
-          about y, yaw about z, all in degrees in the firmware's high-level
-          loops, all in deg/s in the rate loop).
-        - Internally we run the PIDs in the Crazyflie's FLU/deg convention
-          (so the gain values can be used unchanged) and convert at the
-          edges:  vel_z_FLU = -vel_z_NED, pos_z_FLU = -pos_z_NED, and the
-          velocity setpoint is rotated into the body frame the same way
-          the firmware does it.
+    Frame: NED (x North, y East, z Down). The Crazyflie firmware was
+    written for FLU (x Forward, y Left, z Up), but the gains transfer
+    1:1 to NED for everything except two sign conventions:
+      - Pitch: +pitch in FLU = nose up; +pitch in NED = nose down.
+      - Yaw:   +yaw  in FLU = CCW seen from above; +yaw in NED = CW.
+    Both are absorbed in the motor mixer (we negate pitch_out and
+    yaw_out before mixing), so the entire control cascade runs in
+    NED with the original gain values. Roll keeps its convention
+    (+roll = right wing down) in both frames since x-forward is
+    shared.
     """
 
     # ---- Crazyflie firmware defaults (used as fallback if the
@@ -427,7 +430,12 @@ class PIDController(BaseController):
         # Velocity loop limits / thrust mapping
         "pid_vel_roll_max":         20.0,    # deg
         "pid_vel_pitch_max":        20.0,    # deg
-        "pid_vel_thrust_base":   30000.0,    # int16 PWM units (CF mapping)
+        # Thrust is on the firmware's PWM scale [0 .. UINT16_MAX = 65535].
+        # Hover sits around ~30000 (~46% PWM). control->thrust is declared
+        # as int16 in the firmware but is used as an unsigned PWM count;
+        # the mixer output is "same scale as motor PWM but uncapped" per
+        # Bitcraze docs, then powerDistributionCap clips into [0, 65535].
+        "pid_vel_thrust_base":   30000.0,
         "pid_vel_thrust_min":    20000.0,
         # Position [m]
         "pid_pos_x_kp": 2.0, "pid_pos_x_ki": 0.0,
@@ -441,6 +449,18 @@ class PIDController(BaseController):
         "pid_pos_vel_z_max": 1.0,
     }
 
+    # Crazyflie inner-loop runs at 500 Hz (ATTITUDE_RATE) and the outer
+    # position loop at 100 Hz (POSITION_RATE). The simulation drives this
+    # controller at controller_thread_func's rate (~100 Hz). To keep the
+    # gain values identical to the firmware we do all loops every call;
+    # that's equivalent to running the outer loop at the controller rate
+    # and is what the firmware actually does for the position loop.
+
+    # Crazyflie firmware PWM scale: motor commands live in [0 .. 65535]
+    # (UINT16_MAX). Hover thrust on a stock Crazyflie 2.1 is ~30000.
+    # The simulation expects normalized motor commands u in [umin, umax]
+    # (the renderer prints u*99, so u ~ [0, 1]). We divide by 65535 to
+    # convert.
     _THRUST_PWM_MAX = 65535.0
 
     def __init__(self, vehicle_config):
@@ -515,6 +535,7 @@ class PIDController(BaseController):
     def _wrap_deg(angle_deg):
         """Wrap to (-180, 180]."""
         a = (angle_deg + 180.0) % 360.0 - 180.0
+        # Match CF's capAngle, which returns in (-180, 180]
         if a == -180.0:
             a = 180.0
         return a
@@ -525,13 +546,12 @@ class PIDController(BaseController):
         self.pid_roll.reset(roll_deg)
         self.pid_pitch.reset(pitch_deg)
         self.pid_yaw.reset(yaw_deg)
-        # FLU velocity (z up) for the velocity PID
         self.pid_vel_x.reset(vel_ned[0])
-        self.pid_vel_y.reset(-vel_ned[1])      # NED y(East) -> FLU y(Left) = -y
-        self.pid_vel_z.reset(-vel_ned[2])      # NED z(Down) -> FLU z(Up)   = -z
+        self.pid_vel_y.reset(vel_ned[1])
+        self.pid_vel_z.reset(vel_ned[2])
         self.pid_pos_x.reset(pos_ned[0])
-        self.pid_pos_y.reset(-pos_ned[1])
-        self.pid_pos_z.reset(-pos_ned[2])
+        self.pid_pos_y.reset(pos_ned[1])
+        self.pid_pos_z.reset(pos_ned[2])
         self._yaw_desired_deg = yaw_deg
 
     # -----------------------------------------------------------------
@@ -568,6 +588,8 @@ class PIDController(BaseController):
             self._reset_all(roll_deg, pitch_deg, yaw_deg, pos_ned, vel_ned)
 
         # ---------------- Yaw setpoint integration (rate -> angle) ------
+        # In NED yaw is positive about z-Down (= turn right seen from above),
+        # which matches the user's intuition for yaw_cmd = +1 -> turn right.
         if not np.isclose(yaw_cmd, 0.0):
             yaw_rate_dps = yaw_cmd * np.rad2deg(self.vehicle_config.max_rotation_rate_rps)
             self._yaw_desired_deg = self._wrap_deg(
@@ -575,93 +597,80 @@ class PIDController(BaseController):
             )
 
         # ===============================================================
-        # Outer loop:  Position -> velocity setpoint  (in FLU frame)
+        # Outer loop:  Position -> velocity setpoint  (NED)
         # ===============================================================
-        # Setpoint horizontal position from FSM (NED), vertical from FSM too.
         pos_sp_ned = self.ctrl_state.desired_pos
-        # Convert state and setpoint to FLU for the PIDs
-        pos_x_flu     =  pos_ned[0]
-        pos_y_flu     = -pos_ned[1]
-        pos_z_flu     = -pos_ned[2]
-        pos_x_sp_flu  =  pos_sp_ned[0]
-        pos_y_sp_flu  = -pos_sp_ned[1]
-        pos_z_sp_flu  = -pos_sp_ned[2]
 
-        # Manual horizontal velocity command (when sticks are deflected
-        # the firmware's positionController switches to velocity-hold for
-        # the respective axis). We mirror that: if user commands lateral
-        # or longitudinal motion, bypass the position PID for X/Y and
-        # feed a velocity setpoint directly. Z always uses position-hold
-        # because vertical_cmd just shifts desired_pos[2] in the FSM.
+        # Manual horizontal velocity command: when sticks are deflected
+        # the firmware switches the corresponding axes to velocity-hold.
+        # Z always uses position-hold because vertical_cmd just shifts
+        # desired_pos[2] in the FSM.
         horizontal_cmd = not np.allclose(cmd_b[0:2], 0.0)
 
         if horizontal_cmd:
-            # User-commanded velocity in body frame (FLU): x forward, y left
+            # User-commanded velocity in body frame (NED body): x forward,
+            # y right. lateral_cmd = +1 -> right -> +y_East in body.
             v_max = self.vehicle_config.max_horizontal_velocity_mps
-            vx_sp_body =  cmd_b[0] * v_max     # forward
-            vy_sp_body = -cmd_b[1] * v_max     # lateral_cmd: +1 = right (NED-East),
-                                               # FLU y is Left, so sign-flip
-            # Rotate body -> world (FLU); only yaw matters for level flight
+            vx_sp_body = cmd_b[0] * v_max     # forward
+            vy_sp_body = cmd_b[1] * v_max     # right
+            # Rotate body -> world (NED) using yaw
             yaw_rad = np.deg2rad(yaw_deg)
             cy, sy = np.cos(yaw_rad), np.sin(yaw_rad)
-            vx_sp_flu = cy * vx_sp_body - sy * vy_sp_body
-            vy_sp_flu = sy * vx_sp_body + cy * vy_sp_body
+            vx_sp_ned = cy * vx_sp_body - sy * vy_sp_body
+            vy_sp_ned = sy * vx_sp_body + cy * vy_sp_body
             # Reset position integrators so we don't wind up while moving
-            self.pid_pos_x.reset(pos_x_flu)
-            self.pid_pos_y.reset(pos_y_flu)
+            self.pid_pos_x.reset(pos_ned[0])
+            self.pid_pos_y.reset(pos_ned[1])
         else:
-            self.pid_pos_x.set_desired(pos_x_sp_flu)
-            self.pid_pos_y.set_desired(pos_y_sp_flu)
-            vx_sp_flu = self.pid_pos_x.update(pos_x_flu, dt_sec)
-            vy_sp_flu = self.pid_pos_y.update(pos_y_flu, dt_sec)
+            self.pid_pos_x.set_desired(pos_sp_ned[0])
+            self.pid_pos_y.set_desired(pos_sp_ned[1])
+            vx_sp_ned = self.pid_pos_x.update(pos_ned[0], dt_sec)
+            vy_sp_ned = self.pid_pos_y.update(pos_ned[1], dt_sec)
 
         # Z position loop is always active (FSM handles vertical_cmd by
-        # adjusting desired_pos[2])
-        self.pid_pos_z.set_desired(pos_z_sp_flu)
-        vz_sp_flu = self.pid_pos_z.update(pos_z_flu, dt_sec)
+        # adjusting desired_pos[2]). vertical_cmd = +1 means "go up" in
+        # the user's frame; the FSM stores desired_pos in NED, so up is
+        # already mapped to a smaller (more negative) z.
+        self.pid_pos_z.set_desired(pos_sp_ned[2])
+        vz_sp_ned = self.pid_pos_z.update(pos_ned[2], dt_sec)
 
         # Clip the velocity setpoint to the configured limits
-        vx_sp_flu = float(np.clip(vx_sp_flu, -self.pos_vel_x_max, self.pos_vel_x_max))
-        vy_sp_flu = float(np.clip(vy_sp_flu, -self.pos_vel_y_max, self.pos_vel_y_max))
-        vz_sp_flu = float(np.clip(vz_sp_flu, -self.pos_vel_z_max, self.pos_vel_z_max))
+        vx_sp_ned = float(np.clip(vx_sp_ned, -self.pos_vel_x_max, self.pos_vel_x_max))
+        vy_sp_ned = float(np.clip(vy_sp_ned, -self.pos_vel_y_max, self.pos_vel_y_max))
+        vz_sp_ned = float(np.clip(vz_sp_ned, -self.pos_vel_z_max, self.pos_vel_z_max))
 
         # ===============================================================
-        # Middle loop:  Velocity -> roll/pitch + thrust  (FLU)
+        # Middle loop:  Velocity -> roll/pitch + thrust  (NED)
         # ===============================================================
-        vx_flu =  vel_ned[0]
-        vy_flu = -vel_ned[1]
-        vz_flu = -vel_ned[2]
+        self.pid_vel_x.set_desired(vx_sp_ned)
+        self.pid_vel_y.set_desired(vy_sp_ned)
+        self.pid_vel_z.set_desired(vz_sp_ned)
+        u_vx = self.pid_vel_x.update(vel_ned[0], dt_sec)
+        u_vy = self.pid_vel_y.update(vel_ned[1], dt_sec)
+        u_vz = self.pid_vel_z.update(vel_ned[2], dt_sec)
 
-        self.pid_vel_x.set_desired(vx_sp_flu)
-        self.pid_vel_y.set_desired(vy_sp_flu)
-        self.pid_vel_z.set_desired(vz_sp_flu)
-        u_vx = self.pid_vel_x.update(vx_flu, dt_sec)
-        u_vy = self.pid_vel_y.update(vy_flu, dt_sec)
-        u_vz = self.pid_vel_z.update(vz_flu, dt_sec)
-
-        # In the firmware: the velocity-x PID output is an unsigned-ish
-        # "tilt forward" demand that the position controller maps directly
-        # into a pitch setpoint (negative pitch tilts forward in FLU,
-        # because pitch is rotation about y-Left). The y output maps to
-        # roll the same way.
-        yaw_rad = np.deg2rad(yaw_deg)
-        cy, sy = np.cos(yaw_rad), np.sin(yaw_rad)
         # Rotate world-frame velocity-PID outputs into the body frame so
         # roll/pitch commands stay consistent with the heading.
-        u_fwd  =  cy * u_vx + sy * u_vy   # forward demand
-        u_left = -sy * u_vx + cy * u_vy   # left demand
+        yaw_rad = np.deg2rad(yaw_deg)
+        cy, sy = np.cos(yaw_rad), np.sin(yaw_rad)
+        u_fwd   =  cy * u_vx + sy * u_vy   # forward demand (body x)
+        u_right = -sy * u_vx + cy * u_vy   # right   demand (body y, NED)
 
-        # Tilt: +pitch (CF) noses up -> negative pitch to fly forward.
+        # In NED:
+        #   +pitch = nose down -> backward acceleration
+        #   to fly forward (+u_fwd) we need negative pitch
+        #   +roll  = right wing down -> right acceleration
+        #   to fly right (+u_right) we need positive roll
         pitch_sp_deg = -u_fwd
-        # +roll (CF) tips right (about x-Forward, right-hand rule with z-Up
-        # -> positive roll is right-wing-down). Rolling right means moving
-        # in the -y_left direction, so to move +y_left we need negative roll.
-        roll_sp_deg  = -u_left
+        roll_sp_deg  =  u_right
 
         roll_sp_deg  = float(np.clip(roll_sp_deg,  -self.vel_roll_max,  self.vel_roll_max))
         pitch_sp_deg = float(np.clip(pitch_sp_deg, -self.vel_pitch_max, self.vel_pitch_max))
 
-        thrust_pwm = self.vel_thrust_base + u_vz
+        # Z-velocity PID in NED: a positive vz setpoint (descending) means
+        # we want LESS thrust. The CF firmware (FLU) used: thrust = base + u_vz
+        # because there +vz_sp meant climbing. In NED the sign flips.
+        thrust_pwm = self.vel_thrust_base - u_vz
         if thrust_pwm < self.vel_thrust_min:
             thrust_pwm = self.vel_thrust_min
         if thrust_pwm > self._THRUST_PWM_MAX:
@@ -681,24 +690,15 @@ class PIDController(BaseController):
         # ===============================================================
         # Rate loop:  body rate -> raw torque commands
         # ===============================================================
-        # In the CF firmware the gyro y-axis is negated when fed in
-        # (`-sensors->gyro.y`) because the IMU mount differs from the
-        # body-rate convention they want for pitch. Our omega comes from
-        # the simulator already in the body frame matching RPY, so no
-        # sign flip is needed here.
         self.pid_roll_rate.set_desired(roll_rate_sp)
         self.pid_pitch_rate.set_desired(pitch_rate_sp)
         self.pid_yaw_rate.set_desired(yaw_rate_sp)
 
-        roll_out  = self.pid_roll_rate.update(p_dps,  dt_sec)
+        roll_out  = self.pid_roll_rate.update(p_dps, dt_sec)
         pitch_out = self.pid_pitch_rate.update(q_dps, dt_sec)
-        yaw_out   = self.pid_yaw_rate.update(r_dps,   dt_sec)
+        yaw_out   = self.pid_yaw_rate.update(r_dps, dt_sec)
 
-        # CF firmware then does `control->yaw = -control->yaw;` (again,
-        # IMU/firmware convention mismatch). Skipped here for the same
-        # reason as above.
-
-        # int16 saturation, exactly like saturateSignedInt16
+        # int16 saturation, like saturateSignedInt16 in firmware
         roll_out  = float(np.clip(roll_out,  -32768.0, 32767.0))
         pitch_out = float(np.clip(pitch_out, -32768.0, 32767.0))
         yaw_out   = float(np.clip(yaw_out,   -32768.0, 32767.0))
@@ -706,12 +706,18 @@ class PIDController(BaseController):
         # ===============================================================
         # Power distribution (powerDistributionLegacy / X-config)
         # ===============================================================
-        r_half = roll_out  * 0.5
-        p_half = pitch_out * 0.5
-        m1 = thrust_pwm - r_half + p_half + yaw_out
-        m2 = thrust_pwm - r_half - p_half - yaw_out
-        m3 = thrust_pwm + r_half - p_half + yaw_out
-        m4 = thrust_pwm + r_half + p_half - yaw_out
+        # The firmware mixer is written for FLU. Our control outputs are
+        # in NED, where pitch and yaw have opposite sign vs. FLU. We
+        # absorb both flips here so the rest of the cascade stays in NED.
+        pitch_mix = -pitch_out
+        yaw_mix   = -yaw_out
+
+        r_half = roll_out * 0.5
+        p_half = pitch_mix * 0.5
+        m1 = thrust_pwm - r_half + p_half + yaw_mix
+        m2 = thrust_pwm - r_half - p_half - yaw_mix
+        m3 = thrust_pwm + r_half - p_half + yaw_mix
+        m4 = thrust_pwm + r_half + p_half - yaw_mix
 
         motors_pwm = np.array([m1, m2, m3, m4], dtype=float)
         # Normalize from PWM counts to simulation u in [umin, umax]
