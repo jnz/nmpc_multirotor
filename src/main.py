@@ -435,7 +435,7 @@ class PIDController(BaseController):
         # as int16 in the firmware but is used as an unsigned PWM count;
         # the mixer output is "same scale as motor PWM but uncapped" per
         # Bitcraze docs, then powerDistributionCap clips into [0, 65535].
-        "pid_vel_thrust_base":   30000.0,
+        "pid_vel_thrust_base":   37000.0,
         "pid_vel_thrust_min":    20000.0,
         # Position [m]
         "pid_pos_x_kp": 2.0, "pid_pos_x_ki": 0.0,
@@ -667,10 +667,8 @@ class PIDController(BaseController):
         roll_sp_deg  = float(np.clip(roll_sp_deg,  -self.vel_roll_max,  self.vel_roll_max))
         pitch_sp_deg = float(np.clip(pitch_sp_deg, -self.vel_pitch_max, self.vel_pitch_max))
 
-        # Z-velocity PID in NED: a positive vz setpoint (descending) means
-        # we want LESS thrust. The CF firmware (FLU) used: thrust = base + u_vz
-        # because there +vz_sp meant climbing. In NED the sign flips.
-        thrust_pwm = self.vel_thrust_base - u_vz
+        thrust_scale = 1000.0
+        thrust_pwm = self.vel_thrust_base - u_vz*thrust_scale
         if thrust_pwm < self.vel_thrust_min:
             thrust_pwm = self.vel_thrust_min
         if thrust_pwm > self._THRUST_PWM_MAX:
