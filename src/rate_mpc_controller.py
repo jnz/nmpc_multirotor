@@ -17,7 +17,7 @@ Crazyflie-style power distribution.
 
 import numpy as np
 
-from base_controller import BaseController
+from base_controller import BaseController, update_vehicle_control_state
 from geodetic_toolbox import quat_to_rpy, quat_from_rpy, quat_to_matrix, angle_diff
 
 from acados_template import AcadosOcpSolver
