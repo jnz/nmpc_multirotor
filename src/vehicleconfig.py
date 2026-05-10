@@ -61,7 +61,7 @@ class CopterConfig:
         #   F_i = rho * A * Cl * maxOmega^2 * u_i^2                (3)
         #
         # So the total max. thrust is:
-        #   F_i_max = rho * A * Cl * maxOmega^2 * 1.0              (4)
+        #   F_i_max = rho * A * Cl * maxOmega^2 * u_max_i^2        (4)
         #
         # The same logic applies for the torque T_i along the motor axis i:
         #   T_i = rho * A * Cd * maxOmega^2 * u_i^2                (5)
@@ -266,7 +266,7 @@ class CopterConfig:
             # <cf21>
             self.vehicle_name = "Crazyflie 2.1 BL"
             self.model_file = "cf21.stl"
-            self.mass_kg = 0.040  # total vehicle mass in kg
+            self.mass_kg = 0.044  # total vehicle mass in kg
             self.model_offset = np.array([0.0, 0.0, 0.0])
             self.center_of_mass_b = np.array(
                 [0.0, 0.0, 0.0]
@@ -433,7 +433,6 @@ class CopterConfig:
 def get_vehicle_config(vehicle=0):
     return CopterConfig(vehicle=vehicle)
 
-
 def control_matrix(
     motor_positions_north_east,
     motor_direction,
@@ -496,6 +495,11 @@ if __name__ == "__main__":
     print(config.M)
     print("J = ")
     print(config.J)
+    print("motormax_thrust_per_motor_N      Equation: F(omega) = motormax_thrust_per_motor_N * u^2")
+    print(config.motormax_thrust_per_motor_N)
+    print("motormax_torque_per_motor_Nm     Equation: tau(omega) = motormax_torque_per_motor_Nm * u^2")
+    print(config.motormax_torque_per_motor_Nm)
+
     xrange = np.arange(config.umin, config.umax, 0.1)
     yrange = np.copy(xrange)
     for i in range(len(xrange)):
