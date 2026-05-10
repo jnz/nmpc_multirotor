@@ -284,7 +284,7 @@ def main():
     # ==========================================================
     # Controller Selection
     # ==========================================================
-    ACTIVE_CONTROLLER = "PID"
+    ACTIVE_CONTROLLER = "RATE_MPC"
 
     if ACTIVE_CONTROLLER == "NMPC":
         print("Initializing Full NMPC Controller...")

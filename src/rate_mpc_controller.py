@@ -23,11 +23,6 @@ from geodetic_toolbox import quat_to_rpy, quat_from_rpy, quat_to_matrix, angle_d
 from acados_template import AcadosOcpSolver
 from mpc_copter.copter_model_rates import export_copterrates_ode_model
 from mpc_copter.build_ocp import build_ocp
-# NOTE: update_vehicle_control_state is reused from the existing position
-# controller's pipeline. If your project keeps it in a different module,
-# adjust this import accordingly.
-from mpc_copter.controller_utils import update_vehicle_control_state
-
 
 # =====================================================================
 # Inner rate PID
@@ -167,7 +162,7 @@ class RateMPCController(BaseController):
         ocp_cfg = getattr(vehicle_config, "ocp_rate_sim",
                           getattr(vehicle_config, "ocp_sim"))
 
-        # build_ocp is reused — it's model-agnostic as long as the model
+        # build_ocp is reused - it's model-agnostic as long as the model
         # exposes weight_diag, cost_u_weight, state_cfg, etc.
         self.ocp, self.model, self.nx, self.nu, self.ny, self.N_horizon, self.Tf = (
             build_ocp(vehicle_config, ocp_cfg,
@@ -188,7 +183,7 @@ class RateMPCController(BaseController):
         self._max_thrust_N = float(np.sum(np.asarray(vehicle_config.M)[self._GAMMA_THRUST_IDX, :]))
 
     # -----------------------------------------------------------------
-    # Reference handling — same shape as the position-output controller
+    # Reference handling - same shape as the position-output controller
     # -----------------------------------------------------------------
     def _update_references(self, state, keymap, dt_sec):
         """
