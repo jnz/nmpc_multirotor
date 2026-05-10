@@ -341,7 +341,7 @@ class RateMPCController(BaseController):
         pitch_out = self.pid_pitch_rate.update(q_dps, dt_sec)
         yaw_out   = self.pid_yaw_rate.update(r_dps, dt_sec)
 
-        # Match the firmware's int16 saturation on torque commands.
+        # Match the crazyflie firmware's int16 saturation on torque commands.
         roll_out  = float(np.clip(roll_out,  -32768.0, 32767.0))
         pitch_out = float(np.clip(pitch_out, -32768.0, 32767.0))
         yaw_out   = float(np.clip(yaw_out,   -32768.0, 32767.0))
