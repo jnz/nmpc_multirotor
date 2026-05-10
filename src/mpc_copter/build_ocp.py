@@ -2,27 +2,56 @@
 build_ocp.py - Shared OCP-Builder-Function
 Used by main.py (simulation) and generate_embedded.py (embedded).
 Reads data from vehicle_config and ocp_cfg, builds and returns the AcadosOcp-object.
+
+Model selection
+---------------
+By default the position-output model (export_copterpos_ode_model) is used, which
+matches the historical behavior. To build an OCP for a different model variant
+(e.g. the rate-output model used by the hybrid NMPC + rate-PID controller),
+pass a `model_factory` callable that takes `vehicle_config` and returns an
+AcadosModel:
+
+    from mpc_copter.copter_model_rates import export_copterrates_ode_model
+    ocp, model, nx, nu, ny, N, Tf = build_ocp(
+        vehicle_config, ocp_cfg, model_factory=export_copterrates_ode_model
+    )
+
+Control-input bounds adapt to the model's `ctrlout_u_is_squared` flag:
+  - True  -> u represents squared normalized commands, bounds are [umin^2, umax^2]
+  - False -> u is the raw normalized command in [umin, umax]
 """
 
 import numpy as np
 import scipy.linalg
 from acados_template import AcadosOcp
-from mpc_copter.copter_model_position import export_copterpos_ode_model
 
-def build_ocp(vehicle_config, ocp_cfg):
+
+def build_ocp(vehicle_config, ocp_cfg, model_factory=None):
     """
     Build AcadosOcp-object from vehicle_config and ocp_cfg.
 
     Args:
         vehicle_config : CopterConfig-Instance
-        ocp_cfg        : OcpConfig-Instancce (e.g. vehicle_config.ocp_sim
+        ocp_cfg        : OcpConfig-Instance (e.g. vehicle_config.ocp_sim
                          or vehicle_config.ocp_embedded)
+        model_factory  : Optional callable (vehicle_config) -> AcadosModel.
+                         If None, the position-output model is used (legacy
+                         behavior). Pass export_copterrates_ode_model for the
+                         rate-output variant.
 
     Returns:
         ocp, model, nx, nu, ny, N_horizon, Tf
     """
-    ocp   = AcadosOcp()
-    model = export_copterpos_ode_model(vehicle_config)
+    ocp = AcadosOcp()
+
+    if model_factory is None:
+        # Local import keeps the rate-output build path independent of the
+        # position-output model file.
+        from mpc_copter.copter_model_position import export_copterpos_ode_model
+        model = export_copterpos_ode_model(vehicle_config)
+    else:
+        model = model_factory(vehicle_config)
+
     ocp.model = model
 
     nx = model.x.size()[0]
@@ -32,9 +61,9 @@ def build_ocp(vehicle_config, ocp_cfg):
     # --- Horizon ---
     if ocp_cfg.shooting_nodes is not None:
         # Non-uniform grid
-        nodes      = np.asarray(ocp_cfg.shooting_nodes)
-        N_horizon  = len(nodes) - 1
-        Tf         = float(nodes[-1])
+        nodes     = np.asarray(ocp_cfg.shooting_nodes)
+        N_horizon = len(nodes) - 1
+        Tf        = float(nodes[-1])
         ocp.solver_options.shooting_nodes = nodes
     else:
         # Fixed step size
@@ -63,12 +92,12 @@ def build_ocp(vehicle_config, ocp_cfg):
     ocp.cost.W           = scipy.linalg.block_diag(Q_mat, R_mat)
     ocp.cost.W_e         = Q_mat
 
-    ocp.cost.Vx            = np.zeros((ny, nx))
-    ocp.cost.Vx[:nx, :nx]  = np.eye(nx)
-    Vu                     = np.zeros((ny, nu))
-    Vu[nx:nx + nu, 0:nu]   = np.eye(nu)
-    ocp.cost.Vu            = Vu
-    ocp.cost.Vx_e          = np.eye(nx)
+    ocp.cost.Vx           = np.zeros((ny, nx))
+    ocp.cost.Vx[:nx, :nx] = np.eye(nx)
+    Vu                    = np.zeros((ny, nu))
+    Vu[nx:nx + nu, 0:nu]  = np.eye(nu)
+    ocp.cost.Vu           = Vu
+    ocp.cost.Vx_e         = np.eye(nx)
 
     yref = np.zeros((ny,))
     yref[vehicle_config.state_cfg["q_index"]]        = 1.0
@@ -77,10 +106,19 @@ def build_ocp(vehicle_config, ocp_cfg):
     ocp.cost.yref_e = yref[:nx]
 
     # --- Constraints ---
+    # Control bounds depend on whether u carries squared or raw normalized
+    # commands. The model advertises this via the ctrlout_u_is_squared flag.
     ocp.constraints.constr_type = "BGH"
-    ocp.constraints.lbu         = np.ones(nu) * vehicle_config.umin**2
-    ocp.constraints.ubu         = np.ones(nu) * vehicle_config.umax**2
-    ocp.constraints.idxbu       = np.arange(nu)
+    if getattr(model, "ctrlout_u_is_squared", True):
+        # Position-output model: u = (omega_m / omega_max)^2 in [umin^2, umax^2]
+        ocp.constraints.lbu = np.ones(nu) * vehicle_config.umin ** 2
+        ocp.constraints.ubu = np.ones(nu) * vehicle_config.umax ** 2
+    else:
+        # Rate-output model (and legacy "motor speed in state" variant):
+        # u = normalized motor command in [umin, umax]
+        ocp.constraints.lbu = np.ones(nu) * vehicle_config.umin
+        ocp.constraints.ubu = np.ones(nu) * vehicle_config.umax
+    ocp.constraints.idxbu = np.arange(nu)
 
     x0 = np.zeros(nx)
     x0[vehicle_config.state_cfg["q_index"]] = 1.0
@@ -106,20 +144,20 @@ def build_ocp(vehicle_config, ocp_cfg):
 
     # --- Integrator ---
     ocp.solver_options.integrator_type = "ERK"
-    ocp.solver_options.num_stages      = ocp_cfg.num_stages # e.g. 4 for classic Runge-Kutta
-    ocp.solver_options.num_steps       = ocp_cfg.num_steps  # per shooting interval, e.g. 1 for single-step integration, >1 for multi-step integration (more accurate, but slower)
+    ocp.solver_options.num_stages      = ocp_cfg.num_stages  # e.g. 4 for classic Runge-Kutta
+    ocp.solver_options.num_steps       = ocp_cfg.num_steps   # per shooting interval
 
     # --- QP-Solver ---
-    ocp.solver_options.qp_solver         = ocp_cfg.qp_solver
+    ocp.solver_options.qp_solver = ocp_cfg.qp_solver
     # cond_N = N_horizon -> no condensing   (= sparse QP, many small blocks)
     # cond_N = 0         -> full condensing (= single large dense QP)
     # cond_N = N/2       -> half condensing (compromise, potentially good for embedded)
     cond_N = ocp_cfg.qp_solver_cond_N if ocp_cfg.qp_solver_cond_N is not None \
              else N_horizon
-    ocp.solver_options.qp_solver_cond_N      = cond_N
-    ocp.solver_options.qp_solver_warm_start  = ocp_cfg.qp_warm_start
-    ocp.solver_options.qp_solver_iter_max    = ocp_cfg.qp_iter_max
-    ocp.solver_options.hessian_approx        = "GAUSS_NEWTON"
-    ocp.solver_options.nlp_solver_type       = "SQP_RTI"
+    ocp.solver_options.qp_solver_cond_N     = cond_N
+    ocp.solver_options.qp_solver_warm_start = ocp_cfg.qp_warm_start
+    ocp.solver_options.qp_solver_iter_max   = ocp_cfg.qp_iter_max
+    ocp.solver_options.hessian_approx       = "GAUSS_NEWTON"
+    ocp.solver_options.nlp_solver_type      = "SQP_RTI"
 
     return ocp, model, nx, nu, ny, N_horizon, Tf

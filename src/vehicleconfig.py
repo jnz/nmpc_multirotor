@@ -17,8 +17,8 @@ class OcpConfig:
     # Horizont
     N_horizon      : int            = 10
     Tf             : float          = 0.5
-    shooting_nodes : Optional[object] = None  # np.array oder None
-    num_steps      : object         = 1       # int oder np.array
+    shooting_nodes : Optional[object] = None  # np.array or None
+    num_steps      : object         = 1       # int or np.array
     num_stages     : int            = 4
 
     # QP-Solver
@@ -42,7 +42,18 @@ class OcpConfig:
 # The vehicle is defined in a NED frame (North, East, Down).
 
 class CopterConfig:
-    def __init__(self, vehicle=0):
+    def __init__(self, vehicle=0, state_layout="gamma_in_state"):
+        """
+        Args:
+            vehicle:      vehicle id (0 -> default = 18, 4 = quadcopter, 21 = CF2.1 BL)
+            state_layout: "gamma_in_state"      -> torque+thrust PT1 wrench in state
+                                                   (legacy NMPC w/ motor cmd output)
+                          "rotorspeed_in_state" -> motor angular rates in state
+                                                   (hybrid NMPC + rate-PID, etc.)
+        """
+        assert state_layout in ("gamma_in_state", "rotorspeed_in_state"), \
+            f"Unknown state_layout: {state_layout!r}"
+        self.state_layout = state_layout
 
         if vehicle==0:
             vehicle = 18
@@ -385,53 +396,59 @@ class CopterConfig:
         # position in the state vector. The simulation will also use this
         # dictionary to supply a state vector according to this configuration.
         self.state_cfg = {
-            "q_index": 0,  # attitude quaternion
+            "q_index": 0,
             "q_index_end": 4,
-            "omega_index": 4,  # rotation rates in body frame
+            "omega_index": 4,
             "omega_index_end": 7,
             "omega_roll_index": 4,
             "omega_pitch_index": 5,
             "omega_yaw_index": 6,
-            "pos3d_available": True,  # position in NED
+            "pos3d_available": True,
             "pos3d_index": 7,
             "pos3d_index_end": 10,
             "north_index": 7,
             "east_index": 8,
-            "altitude_available": True,  # basically ignored if a full 3d position is available
+            "altitude_available": True,
             "altitude_index": 9,
-            "vel3d_available": True,  # vel NED in m/s
+            "vel3d_available": True,
             "vel3d_index": 10,
             "vel3d_index_end": 13,
             "vel_north_index": 10,
             "vel_east_index": 11,
-            "vel_down_index": 12,  # if altitude_available is True, vel_down is also available
-            # If gamma_available is set to true, the controller
-            # gets the 4x1 gamma vector which includes the current torque acting on the
-            # aircraft body and the thrust from the rotor plane.
-            "gamma_available": True,  # torque thrust vector available for state
-            "gamma_index": 13,
-            "gamma_index_end": 17,
-            # The alternative to gamma_available (mutually exclusive)
-            # is that the current rotor speeds are added to the state
-            "rotoromega_available": False,
-            # 'rotoromega_index'      : 13,
-            # 'rotoromega_index_end'  : 13 + self.motorcount,
+            "vel_down_index": 12,
         }
-        # automatically calculate the state vector size based on the highest
-        # index that ends with '_end':
-        max_index = max([v for k, v in self.state_cfg.items() if k.endswith("_end")])
+
+        if self.state_layout == "gamma_in_state":
+            # Legacy layout: gamma (torque + thrust) PT1 wrench in state.
+            # State length = 17.
+            self.state_cfg.update({
+                "gamma_available": True,
+                "gamma_index": 13,
+                "gamma_index_end": 17,
+                "rotoromega_available": False,
+            })
+        else:  # "rotorspeed_in_state"
+            # Individual motor angular rates in state.
+            # State length = 13 + motorcount  (= 17 for the quad / CF2.1).
+            self.state_cfg.update({
+                "gamma_available": False,
+                "rotoromega_available": True,
+                "rotoromega_index": 13,
+                "rotoromega_index_end": 13 + self.motorcount,
+            })
+
+        # Auto-compute state vector length from the highest "_end" index.
+        max_index = max(v for k, v in self.state_cfg.items() if k.endswith("_end"))
         self.state_cfg["state_length"] = max_index
+
+        # Sanity: exactly one of the two tail variants is active.
         assert (
-            self.state_cfg["gamma_available"] == True
-            and self.state_cfg["rotoromega_available"] == False
-        ) or (
-            self.state_cfg["gamma_available"] == False
-            and self.state_cfg["rotoromega_available"] == True
-        ), "gamma_available is mutually exclusive to rotoromega_available"
+            self.state_cfg["gamma_available"] != self.state_cfg["rotoromega_available"]
+        ), "gamma_available and rotoromega_available are mutually exclusive"
 
 
-def get_vehicle_config(vehicle=0):
-    return CopterConfig(vehicle=vehicle)
+def get_vehicle_config(vehicle=0, state_layout="gamma_in_state"):
+    return CopterConfig(vehicle=vehicle, state_layout=state_layout)
 
 def control_matrix(
     motor_positions_north_east,

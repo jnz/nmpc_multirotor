@@ -23,9 +23,23 @@ from geodetic_toolbox import *
 # class MultirotorSimEnv(gym.Env):
 # </Gym Interface>
 class MultirotorSimEnv:
-    def __init__(self, vehicle=0):
-        # vehicle config describes the vehicle specific properties:
-        self.vehicle_config = get_vehicle_config(vehicle)
+    def __init__(self, vehicle=0, state_layout="gamma_in_state"):
+        """
+        Args:
+            vehicle:      vehicle id (0 = default)
+            state_layout: "gamma_in_state"      -> state contains gamma (PT1
+                                                   wrench); used by the legacy
+                                                   NMPC that emits direct motor
+                                                   commands.
+                          "rotorspeed_in_state" -> state contains individual
+                                                   motor angular rates; used by
+                                                   the hybrid NMPC + rate-PID
+                                                   controller.
+
+        update_state() already handles both layouts by reading the
+        state_cfg["gamma_available"] / ["rotoromega_available"] flags.
+        """
+        self.vehicle_config = get_vehicle_config(vehicle, state_layout=state_layout)
 
         self.reset_count = 0  # keep track of calls to reset() function
         self.time_sec = 0.0  # keep track of simulation time
