@@ -39,11 +39,25 @@ Quaternion (body->world):
 """
 
 import sys
+import os
+import tty
+import termios
+import select
 import time
 import logging
 import argparse
 import threading
 from pathlib import Path
+
+CFLIB_SIM_PATH = os.path.expanduser("~/developer/CrazySim/crazyflie-lib-python")
+CFLIB_REAL_PATH = os.path.expanduser("~/developer/cflib_real")
+cf_mode = os.getenv("CF_MODE", "sim").lower()
+if cf_mode == "real":
+    print("Initializing real Crazyflie interface...")
+    sys.path.insert(0, CFLIB_REAL_PATH)
+else:
+    print("Initializing CrazySim interface...")
+    sys.path.insert(0, CFLIB_SIM_PATH)
 
 import numpy as np
 
@@ -51,10 +65,11 @@ import cflib.crtp
 from cflib.crazyflie import Crazyflie
 from cflib.crazyflie.log import LogConfig
 from cflib.crazyflie.syncCrazyflie import SyncCrazyflie
-from geodetic_toolbox import quat_mul
 
 # Locate the src directory so imports work when called from elsewhere.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from geodetic_toolbox import quat_multiply
 
 from vehicleconfig import CopterConfig
 from rate_mpc_controller import RateMPCController
@@ -102,7 +117,7 @@ def cf_to_ned_quat(qw: float, qx: float, qy: float, qz: float) -> np.ndarray:
     q_ned = q_ENU2NED ⊗ q_cf ⊗ q_FRD2FLU
     """
     q_cf = np.array([qw, qx, qy, qz])
-    q = quat_mul(quat_mul(_Q_ENU2NED, q_cf), _Q_FRD2FLU)
+    q = quat_multiply(quat_multiply(_Q_ENU2NED, q_cf), _Q_FRD2FLU)
     return q / np.linalg.norm(q)
 
 
@@ -147,6 +162,52 @@ class CrazySimBridge:
         }
 
         self._running = False
+        self._keymap_lock = threading.Lock()
+
+    # -------------------------------------------------------------------
+    # Keyboard input
+    # -------------------------------------------------------------------
+
+    _KEY_BINDINGS = {
+        'w': ('longitudinal_cmd', +1.0),
+        's': ('longitudinal_cmd', -1.0),
+        'd': ('lateral_cmd',      +1.0),
+        'a': ('lateral_cmd',      -1.0),
+        'e': ('yaw_cmd',          +1.0),
+        'q': ('yaw_cmd',          -1.0),
+        'r': ('vertical_cmd',     +1.0),
+        'f': ('vertical_cmd',     -1.0),
+    }
+
+    def _keyboard_thread(self):
+        """
+        Reads single keystrokes in raw terminal mode.
+
+        Hold a key → axis stays at ±1.  Release (no input for 80 ms) → axis
+        resets to 0.  Ctrl-C / ESC stop the bridge.
+        """
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            while self._running:
+                ready, _, _ = select.select([sys.stdin], [], [], 0.08)
+                if ready:
+                    ch = sys.stdin.read(1)
+                    if ch in ('\x03', '\x1b'):   # Ctrl-C or ESC
+                        self._running = False
+                        break
+                    if ch in self._KEY_BINDINGS:
+                        axis, value = self._KEY_BINDINGS[ch]
+                        with self._keymap_lock:
+                            self._keymap[axis] = value
+                else:
+                    # No key held — zero all axes.
+                    with self._keymap_lock:
+                        for k in self._keymap:
+                            self._keymap[k] = 0.0
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
     # -------------------------------------------------------------------
     # cflib logging
@@ -328,9 +389,20 @@ class CrazySimBridge:
         cf.commander.send_setpoint(0, 0, 0, 0)
         time.sleep(0.1)
 
-        print(f"NMPC control loop active at {CTRL_HZ:.0f} Hz.  Press Ctrl-C to stop.\n")
+        print(
+            "\nControls (hold key):\n"
+            "  W / S  — forward / backward\n"
+            "  A / D  — left / right\n"
+            "  Q / E  — yaw left / right\n"
+            "  R / F  — up / down\n"
+            "  ESC / Ctrl-C — stop\n"
+        )
+        print(f"NMPC control loop active at {CTRL_HZ:.0f} Hz.\n")
 
         self._running = True
+        kb_thread = threading.Thread(target=self._keyboard_thread, daemon=True)
+        kb_thread.start()
+
         next_t = time.time()
         iter_count = 0
 
@@ -346,9 +418,12 @@ class CrazySimBridge:
                 # ------ Assemble NMPC state vector ------
                 state = self._assemble_state()
 
+                with self._keymap_lock:
+                    keymap = dict(self._keymap)
+
                 # ------ NMPC outer-loop solve ------
                 u, predictedX = self.controller.compute_control(
-                    state, self._keymap, CTRL_DT
+                    state, keymap, CTRL_DT
                 )
 
                 # Update motor-speed estimate (used on the next iteration).
