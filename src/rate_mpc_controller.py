@@ -118,8 +118,8 @@ class RateMPCController(BaseController):
         "pid_yaw_rate_kp":   120.0, "pid_yaw_rate_ki":    16.7,
         "pid_yaw_rate_kd":     0.0, "pid_yaw_rate_kff":    0.0,
         "pid_yaw_rate_integration_limit":  166.7,
-        "pid_vel_thrust_base":   37000.0,
         "pid_vel_thrust_min":    20000.0,
+        # "pid_vel_thrust_base":   37000.0,
     }
     _THRUST_PWM_MAX = 65535.0
 
@@ -151,7 +151,7 @@ class RateMPCController(BaseController):
             i_limit=G("pid_yaw_rate_integration_limit"),
         )
         self.vel_thrust_min = G("pid_vel_thrust_min")
-        self.vel_thrust_base = G("pid_vel_thrust_base")
+        # self.vel_thrust_base = G("pid_vel_thrust_base")
 
         # -----------------------------------------------------------------
         # 2. NMPC outer loop
@@ -268,17 +268,12 @@ class RateMPCController(BaseController):
     # Thrust [N] -> PWM helper
     # -----------------------------------------------------------------
     def _thrust_N_to_pwm(self, thrust_N):
-        """
-        Linear hover-anchored mapping from total thrust [N] to base PWM.
-
-        At T = m*g we want the configured hover-base PWM (vel_thrust_base);
-        scaling above/below hover is linear in T. This matches what the
-        Crazyflie firmware does in the velocity-controller branch.
-        """
-        if self._hover_thrust_N <= 0.0:
-            return self.vel_thrust_base
-        ratio = thrust_N / self._hover_thrust_N
-        return self.vel_thrust_base * ratio
+        # if self._hover_thrust_N <= 0.0:
+        #     return self.vel_thrust_base
+        # ratio = thrust_N / self._hover_thrust_N
+        # pwm = self.vel_thrust_base * ratio
+        pwm = self._THRUST_PWM_MAX * np.sqrt(thrust_N / (self.vehicle_config.motorcount * self.vehicle_config.CT * (self.vehicle_config.motor_maxOmega_rad_per_sec**2)))
+        return pwm
 
     # -----------------------------------------------------------------
     # Main step
