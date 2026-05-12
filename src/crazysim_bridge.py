@@ -2,20 +2,19 @@
 """
 CrazySim NMPC bridge.
 
-Connects the RateMPCController outer NMPC loop to a CrazySim MuJoCo
+Connects the RateMPCController outer NMPC loop to a CrazySim
 simulation instance via cflib over UDP (simulated CrazyRadio link).
 
 Usage:
     python crazysim_bridge.py [--uri udp://127.0.0.1:19850]
 
 Architecture:
-    CrazySim -> cflib log -> assemble NED state -> NMPC outer loop
-    planned angular-rate setpoints -> send_setpoint -> CF firmware rate PID
-    motors -> CrazySim
+    CrazySim -> cflib -> assemble state -> NMPC loop (here)
+    planned angular-rate setpoints (here) -> send_setpoint -> CF firmware rate PID motors -> CrazySim
 
     The inner rate PID runs inside the CrazySim firmware.  The outer NMPC
     runs here and sends rate setpoints (roll/pitch/yaw in deg/s) plus a
-    thrust (uint16) to the firmware's stabiliser.
+    thrust (uint16) to the firmware.
 
 Frame conventions
 -----------------
@@ -27,13 +26,13 @@ NMPC body frame:                     FRD  — x = forward, y = right,  z = down
 Position / velocity:
     (N, E, D)_ned = (y_enu, x_enu, -z_enu)
 
-Body angular rates (gyro, body-frame only — world frame irrelevant):
+Body angular rates (gyro, body-frame only - world frame irrelevant):
     (p, q, r)_ned = (p_flu,  -q_flu,  -r_flu)
 
 Quaternion (body->world):
-    q_ned = q_ENU2NED ⊗ q_cf ⊗ q_FRD2FLU
-    where q_ENU2NED = [0, 1/√2, 1/√2, 0]  (180° around axis [1,1,0]/√2)
-          q_FRD2FLU = [0, 1,    0,    0]   (180° around body x)
+    q^n_b = q_ENU2NED * q_cf * q_FRD2FLU
+    where q_ENU2NED = [0, 1/√2, 1/√2, 0] (180° around axis [1,1,0]/√2)
+          q_FRD2FLU = [0, 1,    0,    0] (180° around body x)
 
 (c) Jan Zwiener (jan@zwiener.org)
 """
@@ -48,16 +47,6 @@ import logging
 import argparse
 import threading
 from pathlib import Path
-
-CFLIB_SIM_PATH = os.path.expanduser("~/developer/CrazySim/crazyflie-lib-python")
-CFLIB_REAL_PATH = os.path.expanduser("~/developer/cflib_real")
-cf_mode = os.getenv("CF_MODE", "sim").lower()
-if cf_mode == "real":
-    print("Initializing real Crazyflie interface...")
-    sys.path.insert(0, CFLIB_REAL_PATH)
-else:
-    print("Initializing CrazySim interface...")
-    sys.path.insert(0, CFLIB_SIM_PATH)
 
 import numpy as np
 
@@ -85,16 +74,16 @@ CTRL_DT = 1.0 / CTRL_HZ
 # Frame-conversion helpers
 # -----------------------------------------------------------------------
 
-# Constant quaternions used for the ENU↔NED frame conversion.
-# q_ENU2NED: 180° rotation around the world axis [1,1,0]/√2  →  [0, 1/√2, 1/√2, 0]
-# q_FRD2FLU: 180° rotation around body x                     →  [0, 1,    0,    0  ]
+# Constant quaternions used for the ENU <-> NED frame conversion.
+# q_ENU2NED: 180° rotation around the world axis [1,1,0]/√2 -> [ 0, 1/√2, 1/√2, 0 ]
+# q_FRD2FLU: 180° rotation around body x                    -> [ 0, 1,    0,    0 ]
 _S = 1.0 / np.sqrt(2.0)
 _Q_ENU2NED = np.array([0.0, _S, _S, 0.0])   # [qw, qx, qy, qz]
 _Q_FRD2FLU = np.array([0.0, 1.0, 0.0, 0.0])
 
 
 def cf_to_ned_pos(x: float, y: float, z: float) -> np.ndarray:
-    """CF world position ENU (x=East, y=North, z=Up) → NED (x=North, y=East, z=Down)."""
+    """CF world position ENU (x=East, y=North, z=Up) -> NED (x=North, y=East, z=Down)."""
     return np.array([y, x, -z])
 
 
@@ -106,7 +95,7 @@ def cf_to_ned_vel(vx: float, vy: float, vz: float) -> np.ndarray:
 def cf_to_ned_omega(gx_dps: float, gy_dps: float, gz_dps: float) -> np.ndarray:
     """CF body angular rate FLU (deg/s) -> NED body FRD (rad/s).
     Body-frame only; world frame does not affect this conversion.
-    FLU→FRD: x unchanged, y and z negated."""
+    FLU->FRD: x unchanged, y and z negated."""
     return np.deg2rad(np.array([gx_dps, -gy_dps, -gz_dps]))
 
 
@@ -114,7 +103,7 @@ def cf_to_ned_quat(qw: float, qx: float, qy: float, qz: float) -> np.ndarray:
     """
     CF quaternion (FLU body to ENU world) -> NED quaternion (FRD body -> NED world).
 
-    q_ned = q_ENU2NED ⊗ q_cf ⊗ q_FRD2FLU
+    q_ned = q_ENU2NED * q_cf * q_FRD2FLU
     """
     q_cf = np.array([qw, qx, qy, qz])
     q = quat_multiply(quat_multiply(_Q_ENU2NED, q_cf), _Q_FRD2FLU)
@@ -145,8 +134,7 @@ class CrazySimBridge:
         self._log_ready = threading.Event()
 
         # Estimated motor angular rates maintained via software PT1 model.
-        # Initialized to 70 % of max omega (rough hover approximation).
-        hover_omega = vehicle_config.motor_maxOmega_rad_per_sec * 0.7
+        hover_omega = vehicle_config.motor_maxOmega_rad_per_sec * vehicle_config.hover_setpoint_u
         self._motor_omega = np.ones(vehicle_config.motorcount) * hover_omega
 
         # Outer NMPC controller (inner rate PID runs inside CF firmware).
@@ -202,7 +190,7 @@ class CrazySimBridge:
                         with self._keymap_lock:
                             self._keymap[axis] = value
                 else:
-                    # No key held — zero all axes.
+                    # No key held - zero all axes.
                     with self._keymap_lock:
                         for k in self._keymap:
                             self._keymap[k] = 0.0
@@ -261,7 +249,7 @@ class CrazySimBridge:
 
         The vector layout matches CopterConfig(vehicle=21, state_layout=
         "rotorspeed_in_state"):
-            [0:4]   quaternion        [qw, qx, qy, qz]  (body → NED)
+            [0:4]   quaternion        [qw, qx, qy, qz]  (body -> NED)
             [4:7]   angular rates     [p, q, r]          rad/s, NED body
             [7:10]  position          [N, E, D]          m, NED
             [10:13] velocity          [vN, vE, vD]       m/s, NED
@@ -288,12 +276,10 @@ class CrazySimBridge:
         )
 
         # --- Position ---
-        # Default z = -0.3 (30 cm above ground) so the NMPC sees a hovering
-        # initial condition before the first real measurement arrives.
         state[cfg["pos3d_index"]:cfg["pos3d_index_end"]] = cf_to_ned_pos(
             d.get("stateEstimate.x",  0.0),
             d.get("stateEstimate.y",  0.0),
-            d.get("stateEstimate.z",  0.3),
+            d.get("stateEstimate.z",  0.0),
         )
 
         # --- Velocity ---
@@ -366,10 +352,10 @@ class CrazySimBridge:
         # the first two arguments as deg/s rather than degrees.
         # Yaw is always rate in the RPYT commander.
         # NOTE: parameter names depend on the CF firmware version.
-        #       "flightmode.stabModeRoll" = 0 (ANGLE) / 1 (RATE)
+        #       "flightmode.stabModeRoll" = 0 (RATE) / 1 (ANGLE)
         try:
-            cf.param.set_value("flightmode.stabModeRoll",  "1")
-            cf.param.set_value("flightmode.stabModePitch", "1")
+            cf.param.set_value("flightmode.stabModeRoll",  "0")
+            cf.param.set_value("flightmode.stabModePitch", "0")
         except Exception as exc:
             print(f"Warning: could not set rate mode parameters: {exc}")
             print("Continuing – verify manually that the firmware is in rate mode.")
