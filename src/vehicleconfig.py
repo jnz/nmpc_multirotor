@@ -380,6 +380,13 @@ class CopterConfig:
             max_commandable_thrust * self.motorcount / self.gravity_n[2]
         ) / self.mass_kg
 
+        # Hover setpoint
+        thrust_to_hover_total_N = self.mass_kg * self.gravity_n[2]
+        thrust_to_hover_per_motor_N = thrust_to_hover_total_N / self.motorcount
+        self.hover_setpoint_u = np.sqrt(thrust_to_hover_per_motor_N / (self.CT * (self.motor_maxOmega_rad_per_sec**2)))
+        assert(self.hover_setpoint_u > self.umin), "Hover setpoint u below umin"
+        assert(self.hover_setpoint_u < self.umax), "Hover setpoint u above umax"
+
         print(
             "Active vehicle config: %s with %i motors and %.2f kg MTOM. Thrust/weight ratio: %.1f"
             % (self.vehicle_name, self.motorcount, self.mass_kg, self.thrust_to_weight_ratio)
@@ -516,6 +523,7 @@ if __name__ == "__main__":
     print(config.motormax_thrust_per_motor_N)
     print("motormax_torque_per_motor_Nm     Equation: tau(omega) = motormax_torque_per_motor_Nm * u^2")
     print(config.motormax_torque_per_motor_Nm)
+    print(f"Hover setpoint u: {config.hover_setpoint_u:.2f}")
 
     xrange = np.arange(config.umin, config.umax, 0.1)
     yrange = np.copy(xrange)
