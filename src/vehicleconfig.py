@@ -19,7 +19,7 @@ class OcpConfig:
     Tf             : float          = 0.5
     shooting_nodes : Optional[object] = None  # np.array or None
     num_steps      : object         = 1       # int or np.array
-    num_stages     : int            = 4
+    num_stages     : int            = 4       # RK4
 
     # QP-Solver
     qp_solver      : str            = "PARTIAL_CONDENSING_HPIPM"
